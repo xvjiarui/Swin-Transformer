@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+**/*.pyc
 
 # C extensions
 *.so
@@ -122,8 +123,22 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-.dmypy.json
-dmypy.json
 
-# Pyre type checker
-.pyre/
+# custom
+.vscode
+.idea
+*.pkl
+*.pkl.json
+*.log.json
+work_dirs/
+.dev/kubectl/*.sh
+
+# Pytorch
+*.pth
+*.pth.tar
+
+# W&B
+wandb/
+
+# Profile
+*.prof

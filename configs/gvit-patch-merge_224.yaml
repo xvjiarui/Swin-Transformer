@@ -1,0 +1,6 @@
+MODEL:
+  TYPE: gvit
+  NAME: gvit_patch_merge_224
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    DOWNSAMPLE_TYPE: merge

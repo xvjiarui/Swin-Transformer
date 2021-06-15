@@ -6,6 +6,7 @@
 # --------------------------------------------------------
 
 import os
+import os.path as osp
 import time
 import argparse
 import datetime
@@ -62,6 +63,7 @@ def parse_option():
     parser.add_argument('--tag', help='tag of experiment')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
+    parser.add_argument('--wandb', action='store_true', help='Use W&B to log experiments')
 
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
@@ -74,6 +76,12 @@ def parse_option():
 
 
 def main(config):
+    if config.WANDB and dist.get_rank() == 0:
+        import wandb
+        wandb.init(project='swin', name=osp.join(config.MODEL.NAME, config.TAG),
+                   dir=config.OUTPUT, config=config, resume=True)
+    else:
+        wandb = None
     dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
 
     logger.info(f"Creating model:{config.MODEL.TYPE}/{config.MODEL.NAME}")
@@ -133,14 +141,24 @@ def main(config):
     for epoch in range(config.TRAIN.START_EPOCH, config.TRAIN.EPOCHS):
         data_loader_train.sampler.set_epoch(epoch)
 
-        train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler)
+        loss_train = train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler)
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
+        logger.info(f"Avg loss of the network on the {len(dataset_train)} train images: {loss_train:.2f}")
 
         acc1, acc5, loss = validate(config, data_loader_val, model)
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
         max_accuracy = max(max_accuracy, acc1)
         logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        if wandb is not None:
+            log_stat = {
+                'train_loss': loss_train,
+                'val_acc1': acc1,
+                'val_acc5': acc5,
+                'val_loss': loss,
+                'epoch': epoch,
+                'n_parameters': n_parameters}
+            wandb.log(log_stat)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -226,6 +244,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'mem {memory_used:.0f}MB')
     epoch_time = time.time() - start
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
+    return loss_meter.avg
 
 
 @torch.no_grad()

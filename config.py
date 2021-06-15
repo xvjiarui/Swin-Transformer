@@ -71,6 +71,19 @@ _C.MODEL.SWIN.QK_SCALE = None
 _C.MODEL.SWIN.APE = False
 _C.MODEL.SWIN.PATCH_NORM = True
 
+# Group Transformer parameters
+_C.MODEL.GVIT = CN()
+_C.MODEL.GVIT.IN_CHANS = 3
+_C.MODEL.GVIT.BASE_DIM = 96
+_C.MODEL.GVIT.DIM_PER_HEAD = 96
+_C.MODEL.GVIT.STAGE_BLOCKS = [1, 2, 11, 2]
+_C.MODEL.GVIT.MLP_RATIO = 4.
+_C.MODEL.GVIT.QKV_BIAS = True
+_C.MODEL.GVIT.QK_SCALE = None
+_C.MODEL.GVIT.PATCH_NORM = True
+_C.MODEL.GVIT.CLUSTER_TOKENS = [64, 32, 16, 8]
+_C.MODEL.GVIT.DOWNSAMPLE_TYPE='token_assign'
+
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------
@@ -165,6 +178,8 @@ _C.SEED = 0
 _C.EVAL_MODE = False
 # Test throughput only, overwritten by command line argument
 _C.THROUGHPUT_MODE = False
+# Log experiments with W&B
+_C.WANDB = False
 # local rank for DistributedDataParallel, given by command line argument
 _C.LOCAL_RANK = 0
 
@@ -216,6 +231,8 @@ def update_config(config, args):
         config.EVAL_MODE = True
     if args.throughput:
         config.THROUGHPUT_MODE = True
+    if args.wandb:
+        config.WANDB = True
 
     # set local rank for distributed training
     config.LOCAL_RANK = args.local_rank
