@@ -14,6 +14,7 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.data import Mixup
 from timm.data import create_transform
 from timm.data.transforms import _pil_interp
+import webdataset as wds
 
 from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
@@ -29,33 +30,52 @@ def build_loader(config):
 
     num_tasks = dist.get_world_size()
     global_rank = dist.get_rank()
-    if config.DATA.ZIP_MODE and config.DATA.CACHE_MODE == 'part':
-        indices = np.arange(dist.get_rank(), len(dataset_train), dist.get_world_size())
-        sampler_train = SubsetRandomSampler(indices)
+    if config.DATA.WEB_MODE:
+        data_loader_train = wds.WebLoader(
+            dataset_train.batched(config.DATA.BATCH_SIZE, partial=False),
+            batch_size=None, shuffle=False,
+            num_workers=config.DATA.NUM_WORKERS,
+            pin_memory=config.DATA.PIN_MEMORY,
+            persistent_workers=True)
+
+        nbatches = max(1, len(data_loader_train) // (config.DATA.BATCH_SIZE * dist.get_world_size()))
+        data_loader_train = data_loader_train.with_epoch(nbatches)
+
+        data_loader_val = wds.WebLoader(
+            dataset_val.batched(config.DATA.BATCH_SIZE),
+            batch_size=None, shuffle=False,
+            num_workers=config.DATA.NUM_WORKERS,
+            pin_memory=config.DATA.PIN_MEMORY,
+            persistent_workers=True)
+
     else:
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+        if config.DATA.ZIP_MODE and config.DATA.CACHE_MODE == 'part':
+            indices = np.arange(dist.get_rank(), len(dataset_train), dist.get_world_size())
+            sampler_train = SubsetRandomSampler(indices)
+        else:
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
+
+        indices = np.arange(dist.get_rank(), len(dataset_val), dist.get_world_size())
+        sampler_val = SubsetRandomSampler(indices)
+
+        data_loader_train = torch.utils.data.DataLoader(
+            dataset_train, sampler=sampler_train,
+            batch_size=config.DATA.BATCH_SIZE,
+            num_workers=config.DATA.NUM_WORKERS,
+            pin_memory=config.DATA.PIN_MEMORY,
+            drop_last=True,
         )
 
-    indices = np.arange(dist.get_rank(), len(dataset_val), dist.get_world_size())
-    sampler_val = SubsetRandomSampler(indices)
-
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
-        batch_size=config.DATA.BATCH_SIZE,
-        num_workers=config.DATA.NUM_WORKERS,
-        pin_memory=config.DATA.PIN_MEMORY,
-        drop_last=True,
-    )
-
-    data_loader_val = torch.utils.data.DataLoader(
-        dataset_val, sampler=sampler_val,
-        batch_size=config.DATA.BATCH_SIZE,
-        shuffle=False,
-        num_workers=config.DATA.NUM_WORKERS,
-        pin_memory=config.DATA.PIN_MEMORY,
-        drop_last=False
-    )
+        data_loader_val = torch.utils.data.DataLoader(
+            dataset_val, sampler=sampler_val,
+            batch_size=config.DATA.BATCH_SIZE,
+            shuffle=False,
+            num_workers=config.DATA.NUM_WORKERS,
+            pin_memory=config.DATA.PIN_MEMORY,
+            drop_last=False
+        )
 
     # setup mixup / cutmix
     mixup_fn = None
@@ -78,6 +98,23 @@ def build_dataset(is_train, config):
             prefix = prefix + ".zip@/"
             dataset = CachedImageFolder(config.DATA.DATA_PATH, ann_file, prefix, transform,
                                         cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
+        elif config.DATA.WEB_MODE:
+            # repeat dataset infinitely for training mode
+            repeat = is_train
+            prefix = 'imagenet-train-{000000..001281}.tar' if is_train else 'imagenet-val-{000000..000049}.tar'
+            root = os.path.join(config.DATA.DATA_PATH, prefix)
+
+            # shuffle in training mode but not for validation
+            shuffle = config.DATA.SHUFFLE_BUFFER if is_train else 0
+
+            dataset = (
+                wds.WebDataset(root, repeat=repeat)
+                    .shuffle(shuffle)
+                    .decode("pil")
+                    .to_tuple("jpg;png;jpeg cls")
+                    .map_tuple(transform)
+            )
+
         else:
             root = os.path.join(config.DATA.DATA_PATH, prefix)
             dataset = datasets.ImageFolder(root, transform=transform)

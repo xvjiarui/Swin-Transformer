@@ -31,6 +31,10 @@ _C.DATA.INTERPOLATION = 'bicubic'
 # Use zipped dataset instead of folder dataset
 # could be overwritten by command line argument
 _C.DATA.ZIP_MODE = False
+# Use WebDataset instead of folder dataset
+# could be overwritten by command line argument
+_C.DATA.WEB_MODE = False
+_C.DATA.SHUFFLE_BUFFER = 10000
 # Cache Data in Memory, could be overwritten by command line argument
 _C.DATA.CACHE_MODE = 'part'
 # Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.
@@ -213,6 +217,8 @@ def update_config(config, args):
         config.DATA.DATA_PATH = args.data_path
     if args.zip:
         config.DATA.ZIP_MODE = True
+    if args.web:
+        config.DATA.WEB_MODE = True
     if args.cache_mode:
         config.DATA.CACHE_MODE = args.cache_mode
     if args.resume:
