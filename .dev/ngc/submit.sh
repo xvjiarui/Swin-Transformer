@@ -11,4 +11,4 @@
 
 python .dev/ngc/submit_ngc.py configs \
   -f .dev/ngc/submit.txt ${@:1} \
-  --gpus 8 --mem 16 --ace-type norm --data-type ngc --wandb --keep 1
+  --gpus 8 --mem 16 --ace-type norm --data-type ngc --wandb --keep 1 --use-checkpoint

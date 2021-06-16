@@ -6,6 +6,7 @@
 # --------------------------------------------------------
 
 import os
+import subprocess
 import torch
 import torch.distributed as dist
 

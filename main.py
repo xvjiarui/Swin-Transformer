@@ -26,6 +26,7 @@ from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
+from env import collect_env, get_git_hash
 
 try:
     # noinspection PyUnresolvedReferences
@@ -362,6 +363,14 @@ if __name__ == '__main__':
         with open(path, "w") as f:
             f.write(config.dump())
         logger.info(f"Full config saved to {path}")
+
+    # log env info
+    env_info_dict = collect_env()
+    env_info = '\n'.join([f'{k}: {v}' for k, v in env_info_dict.items()])
+    dash_line = '-' * 60 + '\n'
+    logger.info('Environment info:\n' + dash_line + env_info + '\n' + dash_line)
+
+    logger.info(f'Git hash: {get_git_hash(digits=7)}')
 
     # print config
     logger.info(config.dump())

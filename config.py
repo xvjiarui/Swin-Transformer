@@ -88,6 +88,31 @@ _C.MODEL.GVIT.PATCH_NORM = True
 _C.MODEL.GVIT.CLUSTER_TOKENS = [64, 32, 16, 8]
 _C.MODEL.GVIT.DOWNSAMPLE_TYPE='token_assign'
 
+# Vanilla ViT
+_C.MODEL.VIT = CN()
+_C.MODEL.VIT.PATCH_SIZE = 16
+_C.MODEL.VIT.IN_CHANS = 3
+_C.MODEL.VIT.EMBED_DIM = 768
+_C.MODEL.VIT.DEPTH = 12
+_C.MODEL.VIT.NUM_HEADS = 12
+_C.MODEL.VIT.MLP_RATIO = 4.
+_C.MODEL.VIT.QKV_BIAS = True
+_C.MODEL.VIT.QK_SCALE = None
+_C.MODEL.VIT.PATCH_NORM = True
+
+# Recurrent ViT
+_C.MODEL.RVIT = CN()
+_C.MODEL.RVIT.RECURRENCE = [12]
+_C.MODEL.RVIT.PATCH_SIZE = 16
+_C.MODEL.RVIT.IN_CHANS = 3
+_C.MODEL.RVIT.EMBED_DIM = 768
+_C.MODEL.RVIT.DEPTH = 1
+_C.MODEL.RVIT.NUM_HEADS = 12
+_C.MODEL.RVIT.MLP_RATIO = 4.
+_C.MODEL.RVIT.QKV_BIAS = True
+_C.MODEL.RVIT.QK_SCALE = None
+_C.MODEL.RVIT.PATCH_NORM = True
+
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------
