@@ -5,6 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 from datetime import date
+from collections import OrderedDict
 
 WANDB_KEY = '18a953cf069a567c46b1e613f940e6eb8f878c3d'
 AISTORE = 'http://10.150.172.62:51080/v1/objects/imagenet'
@@ -79,25 +80,70 @@ def parse_args():
 
     return args, rest
 
+class Command(object):
+
+    def __init__(self, main_cmd, arg_dict=None):
+        self.main_cmd = main_cmd
+        self.arg_dict = OrderedDict()
+        if arg_dict is not None:
+            self.arg_dict.update(arg_dict)
+
+    def __setitem__(self, key, value):
+        self.arg_dict[key] = value
+
+    def __getitem__(self, item):
+        return self.arg_dict[item]
+
+    @property
+    def text(self):
+        arg_str = ' '.join([f'--{k} {v}' for k, v in self.arg_dict.items()])
+        return f'{self.main_cmd} {arg_str}'
+
+    def compose(self, cmd_list):
+        if not isinstance(cmd_list, (list, tuple)):
+            cmd_list = [cmd_list]
+        cmd_str = self.join([self] + cmd_list)
+        return cmd_str
+
+    @staticmethod
+    def to_str(cmd):
+        if isinstance(cmd, Command):
+            return cmd.text
+        else:
+            return cmd
+
+    @staticmethod
+    def join(cmd_list):
+        cmd_str_list = [Command.to_str(cmd) for cmd in cmd_list if len(Command.to_str(cmd))]
+        cmd_str = ' && '.join(cmd_str_list)
+        return cmd_str
+
 
 def submit(config, args, rest):
+    num_node = args.gpus//8
+    ngc_arg_dict = OrderedDict()
     py_args = " ".join(rest)
     if args.wandb:
         py_args += " --wandb "
     base_config = osp.splitext(osp.basename(config))[0]
-    # job_name = f'{base_config}x{args.gpus}-{date.today().strftime("%m-%d-%y")}'
-    job_name = f'{base_config}x{args.gpus}'
+    ngc_cmd_list = []
     git_clone_cmd = f'git clone -b {args.branch} https://github.com/xvjiarui/Swin-Transformer.git && cd Swin-Transformer'
+    ngc_cmd_list.append(git_clone_cmd)
     link_dirs_cmd = f'mkdir -p /work_dirs/swin && ln -s /work_dirs/swin output'
+    ngc_cmd_list.append(link_dirs_cmd)
+    if args.wandb:
+        ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
 
+    ngc_arg_dict['name'] = f'{base_config}x{args.gpus}'
+    ngc_arg_dict['image'] = "nvcr.io/nvidian/lpr/swin:latest"
+    ngc_arg_dict['workspace'] = f'{args.work_space}:/work_dirs:RW'
+    ngc_arg_dict['result'] = '/result'
+    ngc_arg_dict['network'] = f'{args.network.upper()}'
     if args.data_type == 'ngc':
-        dataset_cmd = f'--datasetid {DATASET_ID}:/job_data '
+        ngc_arg_dict['datasetid'] = f'{DATASET_ID}:/job_data'
         data_path = '/job_data'
     else:
-        dataset_cmd = ''
         data_path = AISTORE
-
-    num_node = args.gpus//8
     if num_node > 1:
         gpus = 8
         mem = 32
@@ -105,41 +151,21 @@ def submit(config, args, rest):
         script = "tools/dist_mn_launch.sh"
         launch_cmd = f'mpirun --allow-run-as-root -x IBV_DRIVERS=/usr/lib/libibverbs/libmlx5 -np ${{NGC_ARRAY_SIZE}} -npernode 1 ' \
                      f'{script} {config} {num_node} {gpus} --data-path {data_path} --web {py_args}'
+        ngc_arg_dict['total-runtime'] = f'{127//num_node}h'
+        ngc_arg_dict['replicas'] = num_node
+        ngc_arg_dict['array-type'] = 'MPI'
     else:
         gpus = args.gpus
         mem = args.mem
-        ace_type = 'norm.beta'
+        ace_type = args.ace_type
         script = "tools/dist_launch.sh"
         launch_cmd = f'{script} {config} {gpus} --data-path {data_path} --web {py_args}'
-
-    instance_name = f'dgx1v.{mem}g.{gpus}.{ace_type}'
-    image_name = "nvcr.io/nvidian/lpr/swin:latest"
-
-    install_cmd = ''
-    if args.wandb:
-        install_cmd += f'pip install wandb && wandb login {WANDB_KEY} '
-    ngc_cmd_list = [git_clone_cmd, link_dirs_cmd, install_cmd, launch_cmd]
-    ngc_cmd = ' && '.join([_ for _ in ngc_cmd_list if len(_)])
-
-    opt_list = []
-    network_cmd = f'--network {args.network} '
-    opt_list.extend([dataset_cmd, network_cmd])
-    if num_node > 1:
-        limit_cmd = f'--total-runtime {128//num_node}h --replicas {num_node} '
-    else:
-        limit_cmd = f'--total-runtime {args.limit} '
-    opt_list.append(limit_cmd)
-
-    opt_cmd = ' '.join(opt_list)
-    ngc_submit_cmd = f'ngc batch run ' \
-                     f'--instance {instance_name} ' \
-                     f'--name {job_name} ' \
-                     f'--image {image_name} ' \
-                     f'--workspace {args.work_space}:/work_dirs:RW ' \
-                     f'--result /result ' \
-                     f'--preempt RESUMABLE ' \
-                     f'--commandline "{ngc_cmd}" ' \
-                     f'{opt_cmd}'
+        ngc_arg_dict['total-runtime'] = f'{args.limit} '
+        ngc_arg_dict['preempt'] = 'RESUMABLE'
+    ngc_cmd_list.append(launch_cmd)
+    ngc_arg_dict['commandline'] = f'"{Command.join(ngc_cmd_list)}"'
+    ngc_arg_dict['instance'] = f'dgx1v.{mem}g.{gpus}.{ace_type}'
+    ngc_submit_cmd = Command('ngc batch run', ngc_arg_dict).text
     print(ngc_submit_cmd)
     os.system(ngc_submit_cmd)
 
