@@ -65,12 +65,17 @@ RUN export CUDA_HOME="/usr/local/cuda"
 
 # Install pytorch
 #RUN conda install pytorch torchvision cudatoolkit=11.1 -c pytorch -c conda-forge -y
-RUN conda install -c conda-forge yacs
-RUN conda install -c iopath iopath
-RUN conda install -c conda-forge -c iopath -c fvcore fvcore
+
+# Install deit related
+#RUN conda install -c conda-forge yacs
+#RUN conda install -c iopath iopath
+#RUN conda install -c conda-forge -c iopath -c fvcore fvcore
 
 # Install TIMM
 RUN pip install timm==0.3.2
+
+# Install einops
+RUN pip install einops
 
 # Install zsh
 RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.1.1/zsh-in-docker.sh)" -t robbyrussell -p git

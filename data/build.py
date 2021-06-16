@@ -4,7 +4,7 @@
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Ze Liu
 # --------------------------------------------------------
-
+import dis
 import os
 import torch
 import numpy as np
@@ -19,6 +19,8 @@ import webdataset as wds
 from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
 
+TRAIN_LEN = 1281167
+VAL_LEN = 50000
 
 def build_loader(config):
     config.defrost()
@@ -38,8 +40,10 @@ def build_loader(config):
             pin_memory=config.DATA.PIN_MEMORY,
             persistent_workers=True)
 
-        nbatches = max(1, len(data_loader_train) // (config.DATA.BATCH_SIZE * dist.get_world_size()))
-        data_loader_train = data_loader_train.with_epoch(nbatches)
+        train_nbatches = max(1, TRAIN_LEN // (config.DATA.BATCH_SIZE * dist.get_world_size()))
+        data_loader_train = (
+            data_loader_train.with_epoch(train_nbatches)
+                .with_length(train_nbatches))
 
         data_loader_val = wds.WebLoader(
             dataset_val.batched(config.DATA.BATCH_SIZE),
@@ -47,6 +51,13 @@ def build_loader(config):
             num_workers=config.DATA.NUM_WORKERS,
             pin_memory=config.DATA.PIN_MEMORY,
             persistent_workers=True)
+
+        val_nbatches = max(1, VAL_LEN // (config.DATA.BATCH_SIZE * dist.get_world_size()))
+        data_loader_val = (
+            data_loader_val.slice(0, VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
+                .with_epoch(val_nbatches)
+                .with_length(val_nbatches)
+        )
 
     else:
         if config.DATA.ZIP_MODE and config.DATA.CACHE_MODE == 'part':
@@ -103,9 +114,11 @@ def build_dataset(is_train, config):
             repeat = is_train
             prefix = 'imagenet-train-{000000..001281}.tar' if is_train else 'imagenet-val-{000000..000049}.tar'
             root = os.path.join(config.DATA.DATA_PATH, prefix)
+            length = TRAIN_LEN if is_train else VAL_LEN
 
             # shuffle in training mode but not for validation
             shuffle = config.DATA.SHUFFLE_BUFFER if is_train else 0
+
 
             dataset = (
                 wds.WebDataset(root, repeat=repeat)
@@ -113,6 +126,7 @@ def build_dataset(is_train, config):
                     .decode("pil")
                     .to_tuple("jpg;png;jpeg cls")
                     .map_tuple(transform)
+                    .with_length(length)
             )
 
         else:
