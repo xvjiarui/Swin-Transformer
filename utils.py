@@ -57,6 +57,16 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
     logger.info(f"{save_path} saving......")
     torch.save(save_state, save_path)
     logger.info(f"{save_path} saved !!!")
+    if config.MAX_KEPT_CKPT > 0:
+        if epoch > config.MAX_KEPT_CKPT:
+            logger.info(f"Epoch: {epoch}, greater than config.MAX_KEPT_CKPT: {config.MAX_KEPT_CKPT}")
+            old_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch - config.MAX_KEPT_CKPT}.pth')
+            if os.path.exists(old_path) :
+                logger.info(f"old checkpoint path {old_path} exits")
+                os.remove(old_path)
+                logger.info(f"old checkpoint path {old_path} removed!!!")
+            else:
+                logger.info(f"old checkpoint path {old_path} does not exits!!!")
 
 
 def get_grad_norm(parameters, norm_type=2):

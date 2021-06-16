@@ -174,6 +174,7 @@ _C.OUTPUT = ''
 _C.TAG = 'default'
 # Frequency to save checkpoint
 _C.SAVE_FREQ = 1
+_C.MAX_KEPT_CKPT = -1
 # Frequency to logging info
 _C.PRINT_FREQ = 10
 # Fixed random seed
@@ -239,6 +240,8 @@ def update_config(config, args):
         config.THROUGHPUT_MODE = True
     if args.wandb:
         config.WANDB = True
+    if args.keep:
+        config.MAX_KEPT_CKPT = args.keep
 
     # set local rank for distributed training
     config.LOCAL_RANK = args.local_rank

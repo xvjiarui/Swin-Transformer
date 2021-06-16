@@ -65,6 +65,7 @@ def parse_option():
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
     parser.add_argument('--wandb', action='store_true', help='Use W&B to log experiments')
+    parser.add_argument('--keep', type=int, help='Maximum checkpoint to keep')
 
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
