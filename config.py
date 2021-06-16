@@ -47,9 +47,9 @@ _C.DATA.NUM_WORKERS = 8
 # -----------------------------------------------------------------------------
 _C.MODEL = CN()
 # Model type
-_C.MODEL.TYPE = 'swin'
+_C.MODEL.TYPE = ''
 # Model name
-_C.MODEL.NAME = 'swin_tiny_patch4_window7_224'
+_C.MODEL.NAME = ''
 # Checkpoint to resume, could be overwritten by command line argument
 _C.MODEL.RESUME = ''
 # Number of classes, overwritten in data preparation
@@ -243,8 +243,14 @@ def update_config(config, args):
     # set local rank for distributed training
     config.LOCAL_RANK = args.local_rank
 
+    # set default name
+    if not len(config.MODEL.NAME):
+        config.MODEL.NAME = os.path.splitext(os.path.basename(args.cfg))[0]
+
+    world_size = int(os.environ['WORLD_SIZE'])
+
     # output folder
-    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)
+    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME+f'x{world_size}', config.TAG)
 
     config.freeze()
 
