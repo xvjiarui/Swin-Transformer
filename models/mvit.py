@@ -356,6 +356,8 @@ class BasicLayer(nn.Module):
                             norm_layer=norm_layer,
                             stride_kv=attn_stride,
                             kernel_kv=attn_kernel,
+                            stride_q=[],
+                            kernel_q=[],
                             has_cls_embed=with_cls_token)
             for i in range(depth)])
 
