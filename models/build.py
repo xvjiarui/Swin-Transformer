@@ -53,7 +53,7 @@ def build_model(config):
                      depths=config.MODEL.MVIT.DEPTHS,
                      dim_per_head=config.MODEL.MVIT.DIM_PER_HEAD,
                      mlp_ratio=config.MODEL.MVIT.MLP_RATIO,
-                     qkv_bias=config.MODEL.MVTIT.QKV_BIAS,
+                     qkv_bias=config.MODEL.MVIT.QKV_BIAS,
                      qk_scale=config.MODEL.MVIT.QK_SCALE,
                      drop_rate=config.MODEL.DROP_RATE,
                      drop_path_rate=config.MODEL.DROP_PATH_RATE,
