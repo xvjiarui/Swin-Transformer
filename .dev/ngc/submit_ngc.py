@@ -61,6 +61,7 @@ def parse_args():
     parser.add_argument("--file", "-f", type=str, help="config txt file")
     parser.add_argument("--limit", type=str, default='7d')
     parser.add_argument('--wandb', '-w', action='store_true', help='use wandb')
+    parser.add_argument('--batch-size', type=int, help="batch size for single GPU")
     parser.add_argument(
         "--work-space",
         type=str,
@@ -123,6 +124,11 @@ def submit(config, args, rest):
     num_node = args.gpus//8
     ngc_arg_dict = OrderedDict()
     py_args = " ".join(rest)
+    if args.batch_size is not None:
+        batch_size = args.batch_size
+    else:
+        batch_size = 128
+    py_args += f" --batch-size {batch_size}"
     if args.wandb:
         py_args += " --wandb "
     base_config = osp.splitext(osp.basename(config))[0]
@@ -134,7 +140,7 @@ def submit(config, args, rest):
     if args.wandb:
         ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
 
-    ngc_arg_dict['name'] = f'{base_config}x{args.gpus}'
+    ngc_arg_dict['name'] = f'{base_config}_bs{batch_size}x{args.gpus}'
     ngc_arg_dict['image'] = "nvcr.io/nvidian/lpr/swin:latest"
     ngc_arg_dict['workspace'] = f'{args.work_space}:/work_dirs:RW'
     ngc_arg_dict['result'] = '/result'

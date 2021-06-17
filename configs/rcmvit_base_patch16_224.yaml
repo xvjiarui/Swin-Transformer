@@ -1,7 +1,8 @@
 MODEL:
-  TYPE: rmvit
+  TYPE: rcmvit
   DROP_PATH_RATE: 0.2
-  RMVIT:
+  RCMVIT:
     EMBED_DIM: 96
     DEPTHS: [1, 1, 1, 1]
     RECURRENCES: [1, 1, 10, 1]
+    CLUSTER_TOKENS: [64, 32, 16, 8]

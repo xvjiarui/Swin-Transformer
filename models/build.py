@@ -9,6 +9,7 @@ from .swin_transformer import SwinTransformer
 from .gvit import GroupingVisionTransformer
 from .vit import VisionTransformer, RecurrentVisionTransformer
 from .mvit import MViT, RecurrentMViT
+from .cmvit import CMViT, RecurrentCMViT
 
 
 def build_model(config):
@@ -59,6 +60,22 @@ def build_model(config):
                      drop_path_rate=config.MODEL.DROP_PATH_RATE,
                      patch_norm=config.MODEL.MVIT.PATCH_NORM,
                      use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+    elif model_type == 'cmvit':
+        model = CMViT(img_size=config.DATA.IMG_SIZE,
+                      in_chans=config.MODEL.CMVIT.IN_CHANS,
+                      num_classes=config.MODEL.NUM_CLASSES,
+                      embed_dim=config.MODEL.CMVIT.EMBED_DIM,
+                      depths=config.MODEL.CMVIT.DEPTHS,
+                      cluster_tokens=config.MODEL.CMVIT.CLUSTER_TOKENS,
+                      pool_mode=config.MODEL.CMVIT.POOL_MODE,
+                      dim_per_head=config.MODEL.CMVIT.DIM_PER_HEAD,
+                      mlp_ratio=config.MODEL.CMVIT.MLP_RATIO,
+                      qkv_bias=config.MODEL.CMVIT.QKV_BIAS,
+                      qk_scale=config.MODEL.CMVIT.QK_SCALE,
+                      drop_rate=config.MODEL.DROP_RATE,
+                      drop_path_rate=config.MODEL.DROP_PATH_RATE,
+                      patch_norm=config.MODEL.CMVIT.PATCH_NORM,
+                      use_checkpoint=config.TRAIN.USE_CHECKPOINT)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,
@@ -66,7 +83,7 @@ def build_model(config):
                                            num_classes=config.MODEL.NUM_CLASSES,
                                            embed_dim=config.MODEL.RVIT.EMBED_DIM,
                                            depth=config.MODEL.RVIT.DEPTH,
-                                           recurrences=config.MODEL.RVIT.RECURRENCE,
+                                           recurrences=config.MODEL.RVIT.RECURRENCES,
                                            num_heads=config.MODEL.RVIT.NUM_HEADS,
                                            mlp_ratio=config.MODEL.RVIT.MLP_RATIO,
                                            qkv_bias=config.MODEL.RVIT.QKV_BIAS,
@@ -81,7 +98,7 @@ def build_model(config):
                               num_classes=config.MODEL.NUM_CLASSES,
                               embed_dim=config.MODEL.RMVIT.EMBED_DIM,
                               depths=config.MODEL.RMVIT.DEPTHS,
-                              recurrences=config.MODEL.RMVIT.RECURRENCE,
+                              recurrences=config.MODEL.RMVIT.RECURRENCES,
                               dim_per_head=config.MODEL.RMVIT.DIM_PER_HEAD,
                               mlp_ratio=config.MODEL.RMVIT.MLP_RATIO,
                               qkv_bias=config.MODEL.RMVIT.QKV_BIAS,
@@ -90,6 +107,23 @@ def build_model(config):
                               drop_path_rate=config.MODEL.DROP_PATH_RATE,
                               patch_norm=config.MODEL.RMVIT.PATCH_NORM,
                               use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+    elif model_type == 'rcmvit':
+        model = RecurrentCMViT(img_size=config.DATA.IMG_SIZE,
+                               in_chans=config.MODEL.RCMVIT.IN_CHANS,
+                               num_classes=config.MODEL.NUM_CLASSES,
+                               embed_dim=config.MODEL.RCMVIT.EMBED_DIM,
+                               depths=config.MODEL.RCMVIT.DEPTHS,
+                               recurrences=config.MODEL.RCMVIT.RECURRENCES,
+                               cluster_tokens=config.MODEL.RCMVIT.CLUSTER_TOKENS,
+                               pool_mode=config.MODEL.RCMVIT.POOL_MODE,
+                               dim_per_head=config.MODEL.RCMVIT.DIM_PER_HEAD,
+                               mlp_ratio=config.MODEL.RCMVIT.MLP_RATIO,
+                               qkv_bias=config.MODEL.RCMVIT.QKV_BIAS,
+                               qk_scale=config.MODEL.RCMVIT.QK_SCALE,
+                               drop_rate=config.MODEL.DROP_RATE,
+                               drop_path_rate=config.MODEL.DROP_PATH_RATE,
+                               patch_norm=config.MODEL.RCMVIT.PATCH_NORM,
+                               use_checkpoint=config.TRAIN.USE_CHECKPOINT)
     elif model_type == 'gvit':
         model = GroupingVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                           in_chans=config.MODEL.GVIT.IN_CHANS,
