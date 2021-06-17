@@ -113,6 +113,29 @@ _C.MODEL.RVIT.QKV_BIAS = True
 _C.MODEL.RVIT.QK_SCALE = None
 _C.MODEL.RVIT.PATCH_NORM = True
 
+# MViT
+_C.MODEL.MVIT = CN()
+_C.MODEL.MVIT.IN_CHANS = 3
+_C.MODEL.MVIT.EMBED_DIM = 96
+_C.MODEL.MVIT.DEPTHS = [1, 1, 10, 1]
+_C.MODEL.MVIT.DIM_PER_HEAD = 96
+_C.MODEL.MVIT.MLP_RATIO = 4.
+_C.MODEL.MVIT.QKV_BIAS = True
+_C.MODEL.MVIT.QK_SCALE = None
+_C.MODEL.MVIT.PATCH_NORM = True
+
+# RecurrentMViT parameters
+_C.MODEL.RMVIT = CN()
+_C.MODEL.RMVIT.IN_CHANS = 3
+_C.MODEL.RMVIT.EMBED_DIM = 96
+_C.MODEL.RMVIT.DEPTHS = [1, 1, 1, 1]
+_C.MODEL.RMVIT.RECURRENCE = [1, 1, 10, 1]
+_C.MODEL.RMVIT.DIM_PER_HEAD = 96
+_C.MODEL.RMVIT.MLP_RATIO = 4.
+_C.MODEL.RMVIT.QKV_BIAS = True
+_C.MODEL.RMVIT.QK_SCALE = None
+_C.MODEL.RMVIT.PATCH_NORM = True
+
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------
@@ -278,7 +301,7 @@ def update_config(config, args):
     world_size = int(os.environ['WORLD_SIZE'])
 
     # output folder
-    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME+f'x{world_size}', config.TAG)
+    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME+f'_bs{config.DATA.BATCH_SIZE}x{world_size}', config.TAG)
 
     config.freeze()
 
