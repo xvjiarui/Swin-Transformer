@@ -114,9 +114,9 @@ class Command(object):
             return cmd
 
     @staticmethod
-    def join(cmd_list):
+    def join(cmd_list, sep=' && '):
         cmd_str_list = [Command.to_str(cmd) for cmd in cmd_list if len(Command.to_str(cmd))]
-        cmd_str = ' && '.join(cmd_str_list)
+        cmd_str = sep.join(cmd_str_list)
         return cmd_str
 
 
@@ -155,9 +155,8 @@ def submit(config, args, rest):
         mem = 32
         ace_type = 'norm'
         script = "tools/dist_mn_launch.sh"
-        launch_cmd = f'mpirun --allow-run-as-root -x IBV_DRIVERS=/usr/lib/libibverbs/libmlx5 -np ${{NGC_ARRAY_SIZE}} -npernode 1 ' \
-                     f'{script} {config} {num_node} {gpus} --data-path {data_path} --web {py_args}'
-        ngc_arg_dict['total-runtime'] = f'{127//num_node}h'
+        launch_cmd = f'{script} {config} {num_node} {gpus} --data-path {data_path} --web {py_args}'
+        # ngc_arg_dict['total-runtime'] = f'{128//num_node}h'
         ngc_arg_dict['replicas'] = num_node
         ngc_arg_dict['array-type'] = 'MPI'
     else:
@@ -166,10 +165,14 @@ def submit(config, args, rest):
         ace_type = args.ace_type
         script = "tools/dist_launch.sh"
         launch_cmd = f'{script} {config} {gpus} --data-path {data_path} --web {py_args}'
-        ngc_arg_dict['total-runtime'] = f'{args.limit} '
+        # ngc_arg_dict['total-runtime'] = f'{args.limit} '
         ngc_arg_dict['preempt'] = 'RESUMABLE'
     ngc_cmd_list.append(launch_cmd)
-    ngc_arg_dict['commandline'] = f'"{Command.join(ngc_cmd_list)}"'
+    if num_node > 1:
+        mpi_cmd = f'mpirun --allow-run-as-root -x IBV_DRIVERS=/usr/lib/libibverbs/libmlx5 -np {num_node} -npernode 1 '
+        ngc_arg_dict['commandline'] = f'"{mpi_cmd} bash -c \'{Command.join(ngc_cmd_list)}\'"'
+    else:
+        ngc_arg_dict['commandline'] = f'"{Command.join(ngc_cmd_list)}"'
     ngc_arg_dict['instance'] = f'dgx1v.{mem}g.{gpus}.{ace_type}'
     ngc_submit_cmd = Command('ngc batch run', ngc_arg_dict).text
     print(ngc_submit_cmd)
