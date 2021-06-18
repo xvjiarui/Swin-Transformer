@@ -45,7 +45,8 @@ def build_model(config):
                                   drop_rate=config.MODEL.DROP_RATE,
                                   drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                   patch_norm=config.MODEL.VIT.PATCH_NORM,
-                                  use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+                                  use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                                  with_gap=config.MODEL.VIT.WITH_GAP)
     elif model_type == 'mvit':
         model = MViT(img_size=config.DATA.IMG_SIZE,
                      in_chans=config.MODEL.MVIT.IN_CHANS,
@@ -66,8 +67,9 @@ def build_model(config):
                       num_classes=config.MODEL.NUM_CLASSES,
                       embed_dim=config.MODEL.CMVIT.EMBED_DIM,
                       depths=config.MODEL.CMVIT.DEPTHS,
-                      cluster_tokens=config.MODEL.CMVIT.CLUSTER_TOKENS,
+                      num_clusters=config.MODEL.CMVIT.NUM_CLUSTERS,
                       pool_mode=config.MODEL.CMVIT.POOL_MODE,
+                      pool_stages=config.MODEL.CMVIT.POOL_STAGES,
                       dim_per_head=config.MODEL.CMVIT.DIM_PER_HEAD,
                       mlp_ratio=config.MODEL.CMVIT.MLP_RATIO,
                       qkv_bias=config.MODEL.CMVIT.QKV_BIAS,
@@ -91,7 +93,8 @@ def build_model(config):
                                            drop_rate=config.MODEL.DROP_RATE,
                                            drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                            patch_norm=config.MODEL.RVIT.PATCH_NORM,
-                                           use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+                                           use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                                           with_gap=config.MODEL.RVIT.WITH_GAP)
     elif model_type == 'rmvit':
         model = RecurrentMViT(img_size=config.DATA.IMG_SIZE,
                               in_chans=config.MODEL.RMVIT.IN_CHANS,
@@ -114,8 +117,9 @@ def build_model(config):
                                embed_dim=config.MODEL.RCMVIT.EMBED_DIM,
                                depths=config.MODEL.RCMVIT.DEPTHS,
                                recurrences=config.MODEL.RCMVIT.RECURRENCES,
-                               cluster_tokens=config.MODEL.RCMVIT.CLUSTER_TOKENS,
+                               num_clusters=config.MODEL.RCMVIT.NUM_CLUSTERS,
                                pool_mode=config.MODEL.RCMVIT.POOL_MODE,
+                               pool_stages=config.MODEL.RCMVIT.POOL_STAGES,
                                dim_per_head=config.MODEL.RCMVIT.DIM_PER_HEAD,
                                mlp_ratio=config.MODEL.RCMVIT.MLP_RATIO,
                                qkv_bias=config.MODEL.RCMVIT.QKV_BIAS,

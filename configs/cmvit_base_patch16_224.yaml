@@ -4,4 +4,4 @@ MODEL:
   CMVIT:
     EMBED_DIM: 96
     DEPTHS: [1, 1, 10, 1]
-    CLUSTER_TOKENS: [64, 32, 16, 8]
+    NUM_CLUSTERS: [64, 32, 16, 8]

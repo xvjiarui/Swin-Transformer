@@ -1,8 +1,8 @@
 MODEL:
-  TYPE: rcmvit
+  TYPE: cmvit
   DROP_PATH_RATE: 0.2
-  RCMVIT:
+  CMVIT:
     EMBED_DIM: 96
-    DEPTHS: [1, 1, 1, 1]
-    RECURRENCES: [1, 1, 10, 1]
+    DEPTHS: [1, 1, 10, 1]
     NUM_CLUSTERS: [64, 32, 16, 8]
+    POOL_STAGES: [0]

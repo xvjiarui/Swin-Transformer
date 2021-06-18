@@ -49,6 +49,7 @@ def attention_pool(tensor, pool, hw_shape, has_cls_embed=True, norm=None):
     B, N, L, C = tensor.shape
     H, W = hw_shape
     tensor = rearrange(tensor, 'b n (h w) c -> (b n) c h w', h=H, w=W, b=B, n=N, c=C)
+    tensor = tensor.contiguous()
 
     tensor = pool(tensor)
 
@@ -69,7 +70,7 @@ def attention_pool(tensor, pool, hw_shape, has_cls_embed=True, norm=None):
 
 
 class SpatialPool(nn.Module):
-    def __init__(self, mode, dim, out_dim, hw_shape, with_cls_token, norm_layer=nn.LayerNorm):
+    def __init__(self, mode, dim, out_dim, hw_shape, with_cls_token, norm_layer):
         super(SpatialPool, self).__init__()
         self.hw_shape = hw_shape
         self.with_cls_token = with_cls_token
@@ -80,7 +81,7 @@ class SpatialPool(nn.Module):
                     dim,
                     (2, 2),
                     stride=(2, 2),
-                    groups=dim if mode == 'depth' else 1,
+                    groups=dim if mode == 'depth-conv' else 1,
                     bias=False)
         elif mode == 'max':
             self.pool = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
@@ -93,10 +94,142 @@ class SpatialPool(nn.Module):
         self.reduction = nn.Linear(dim, out_dim, bias=False)
 
     def forward(self, x):
+        """
+        Args:
+            x (torch.Tensor): image tokens, [B, L, C]
+        """
         x, hw_shape = attention_pool(x, self.pool, self.hw_shape, self.with_cls_token, self.norm)
         x = self.reduction(x)
 
         return x, hw_shape
+
+
+def hard_softmax(logits, dim):
+    y_soft = logits.softmax(dim)
+    # Straight through.
+    index = y_soft.max(dim, keepdim=True)[1]
+    y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format).scatter_(dim, index, 1.0)
+    ret = y_hard - y_soft.detach() + y_soft
+
+    return ret
+
+class AssignAttention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
+                 attn_drop=0., proj_drop=0., hard=True, inv_attn=True):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.q_proj = nn.Linear(dim, dim, bias=qkv_bias)
+        self.k_proj = nn.Linear(dim, dim, bias=qkv_bias)
+        self.v_proj = nn.Linear(dim, dim, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.hard = hard
+        self.inv_attn = inv_attn
+
+    def get_attn(self, attn):
+        if self.inv_attn:
+            attn_dim = -2
+        else:
+            attn_dim = -1
+        if self.hard:
+            attn = hard_softmax(attn, dim=attn_dim)
+        else:
+            attn = F.softmax(attn, dim=attn_dim)
+
+        return attn
+
+    def forward(self, query, *, key=None, value=None, attn_weight=None):
+        B, N, C = query.shape
+        if key is None:
+            key = query
+        if value is None:
+            value = key
+        S = key.size(1)
+        # [B, nh, N, C//nh]
+        q = rearrange(self.q_proj(query), 'b n (h c)-> b h n c',
+                      h=self.num_heads, b=B, n=N, c=C // self.num_heads)
+        # [B, nh, S, C//nh]
+        k = rearrange(self.k_proj(key), 'b n (h c)-> b h n c', h=self.num_heads,
+                      b=B, c=C // self.num_heads)
+        # [B, nh, S, C//nh]
+        v = rearrange(self.v_proj(value), 'b n (h c)-> b h n c',
+                      h=self.num_heads, b=B, c=C // self.num_heads)
+
+        # [B, nh, N, S]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        if attn_weight is not None:
+            assert attn_weight.shape == attn.shape
+            # use log attn to match the scale of attn_weight
+            attn = attn_weight + attn
+        attn = self.get_attn(attn)
+        attn = self.attn_drop(attn)
+        assert attn.shape == (B, self.num_heads, N, S)
+
+        # [B, nh, N, C//nh] <- [B, nh, N, S] @ [B, nh, S, C//nh]
+        out = rearrange(attn @ v, 'b h n c -> b n (h c)', h=self.num_heads, b=B,
+                        n=N, c=C // self.num_heads)
+
+        out = self.proj(out)
+        out = self.proj_drop(out)
+        return out
+
+    def extra_repr(self) -> str:
+        return f'hard: {self.hard}, \n' \
+               f'inv_attn: {self.inv_attn}'
+
+class TokenAssign(nn.Module):
+
+    def __init__(self, dim, out_dim, num_heads, num_cluster,  out_seq_len, with_cls_token, norm_layer,
+                 mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True):
+        super(TokenAssign, self).__init__()
+        self.norm1 = norm_layer(dim)
+        tokens_dim, channels_dim = [int(x * dim) for x in to_2tuple(mlp_ratio)]
+        self.mlp_tokens = Mlp(num_cluster, tokens_dim, out_seq_len)
+        self.norm2 = norm_layer(dim)
+        self.norm3 = norm_layer(dim)
+        self.assign = AssignAttention(dim=dim, num_heads=num_heads,
+                                      qkv_bias=True, hard=hard,
+                                      inv_attn=inv_attn)
+        self.norm4 = norm_layer(dim)
+        self.mlp_channels = Mlp(dim, channels_dim, out_dim)
+        if out_dim is not None and dim != out_dim:
+            self.reduction = nn.Sequential(norm_layer(dim),
+                                           nn.Linear(dim, out_dim,
+                                                     bias=False))
+        else:
+            self.reduction = nn.Identity()
+        self.hard = hard
+        self.with_cls_token = with_cls_token
+
+    def forward(self, x, cluster_tokens):
+        """
+        Args:
+            x (torch.Tensor): image tokens, [B, L, C]
+            cluster_tokens (torch.Tensor): cluster tokens, [B, L_1, C]
+        """
+        # [B, L_2, C] <- [B, L_1, C]
+        merged_cluster_tokens = self.mlp_tokens(self.norm1(cluster_tokens).transpose(1, 2)).transpose(1, 2)
+        # [B, L_2, C]
+        x = self.norm2(x)
+        merged_cluster_tokens = self.norm3(merged_cluster_tokens)
+        # merged_x = merged_cluster_tokens + self.assign(query=merged_cluster_tokens, key=x)
+        if self.with_cls_token:
+            merged_x = self.assign(query=merged_cluster_tokens, key=x[:, 1:])
+        else:
+            merged_x = self.assign(query=merged_cluster_tokens, key=x)
+        merged_x += merged_cluster_tokens
+
+        if self.with_cls_token:
+            merged_x = torch.cat((x[:, :1], merged_x), dim=1)
+
+        merged_x = self.reduction(merged_x) + self.mlp_channels(self.norm4(merged_x))
+
+        return merged_x, None
 
 
 class Attention(nn.Module):
@@ -280,7 +413,10 @@ class BasicLayer(nn.Module):
                 x = c2i_blk(x, cluster_token)
 
         if self.downsample is not None:
-            x, hw_shape = self.downsample(x)
+            if isinstance(self.downsample, TokenAssign):
+                x, hw_shape = self.downsample(x, cluster_token)
+            else:
+                x, hw_shape = self.downsample(x)
 
         return x
 
@@ -359,12 +495,15 @@ class CMViT(nn.Module):
 
     def __init__(self, img_size=224, in_chans=3, num_classes=1000,
                  embed_dim=96, depths=[1, 1, 10, 1], dim_per_head=96,
-                 cluster_tokens=(64, 32, 16, 8),
+                 num_clusters=(64, 32, 16, 8),
                  mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False,
                  pool_mode='depth-conv',
+                 pool_stages=[0, 1, 2],
+                 assign_ratio=[4, 4, 4],
+                 assign_type=('hard', 'inv'),
                  with_gap=False):
         super().__init__()
 
@@ -382,7 +521,8 @@ class CMViT(nn.Module):
         self.drop_path_rate = drop_path_rate
         self.with_gap = with_gap
         self.pool_mode = pool_mode
-        self.cluster_tokens = cluster_tokens
+        self.num_clusters = num_clusters
+        self.pool_stages = pool_stages
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
@@ -413,20 +553,31 @@ class CMViT(nn.Module):
             out_dim = dim * 2
             hw_shape = (patches_resolution[0] // (2 ** i_layer),
                         patches_resolution[1] // (2 ** i_layer))
+            downsample = None
             if i_layer < self.num_layers -1 :
-                downsample = SpatialPool(mode=pool_mode,
-                                         dim=dim,
-                                         out_dim=out_dim,
-                                         hw_shape=hw_shape,
-                                         with_cls_token=self.with_cls_token,
-                                         norm_layer=norm_layer)
-            else:
-                downsample = None
+                if i_layer in self.pool_stages:
+                    downsample = SpatialPool(mode=pool_mode,
+                                             dim=dim,
+                                             out_dim=out_dim,
+                                             hw_shape=hw_shape,
+                                             with_cls_token=self.with_cls_token,
+                                             norm_layer=norm_layer)
+                else:
+                    downsample = TokenAssign(dim=dim,
+                                             out_dim=out_dim,
+                                             num_heads=dim // dim_per_head,
+                                             num_cluster=num_clusters[i_layer],
+                                             out_seq_len=np.prod(hw_shape) //
+                                                         assign_ratio[i_layer],
+                                             norm_layer=norm_layer,
+                                             hard='hard' in assign_type,
+                                             inv_attn='inv' in assign_type,
+                                             with_cls_token=self.with_cls_token)
             layer = BasicLayer(dim=dim,
                                input_resolution=hw_shape,
                                depth=depths[i_layer],
                                num_heads=dim // dim_per_head,
-                               num_cluster=cluster_tokens[i_layer],
+                               num_cluster=num_clusters[i_layer],
                                mlp_ratio=self.mlp_ratio,
                                qkv_bias=qkv_bias, qk_scale=qk_scale,
                                drop=drop_rate, attn_drop=attn_drop_rate,
@@ -595,7 +746,7 @@ class RecurrentCMViT(CMViT):
         attn_drop_rate = self.attn_drop_rate
         dpr = [x.item() for x in torch.linspace(0, self.drop_path_rate,
                                                 sum(recurrences))]  # stochastic depth decay rule
-        cluster_tokens = self.cluster_tokens
+        cluster_tokens = self.num_clusters
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
