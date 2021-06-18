@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from functools import partial
 
-from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import trunc_normal_, drop_path, to_2tuple
 
 class DropPath(nn.Module):
@@ -133,11 +132,39 @@ class PatchEmbed(nn.Module):
         if self.training:
             assert H == self.img_size[0] and W == self.img_size[1], \
                 f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        x = self.proj(x).flatten(2).transpose(1, 2)
+        x = self.proj(x)
+        hw_shape = x.shape[2:]
+        x = x.flatten(2).transpose(1, 2)
         if self.norm is not None:
             x = self.norm(x)
-        return x
+        return x, hw_shape
 
+class PEG(nn.Module):
+    def __init__(self, dim, out_dim, k=(3, 3), with_gap=True):
+        super(PEG, self).__init__()
+        self.norm = nn.LayerNorm(dim, eps=1e-6)
+        self.peg_conv = nn.Conv2d(dim, out_dim, kernel_size=k, stride=(1, 1),
+                                  padding=(k[0] // 2, k[1] // 2), groups=out_dim)
+        self.with_gap = with_gap
+
+    def forward(self, x, hw_shape):
+        """
+        Args:
+            x (torch.Tensor): image tokens, [B, L, C]
+            hw_shape (tuple[int]): (height, width)
+        """
+        x = self.norm(x)
+        batch, length, channels = x.shape
+        if self.with_gap:
+            img_view = x
+        else:
+            img_view = x[:, 1:]
+        img_view = img_view.transpose(1, 2).reshape(batch, channels, *hw_shape).contiguous()
+        img_view = img_view + self.peg_conv(img_view)
+        x_pos = img_view.flatten(2).transpose(1, 2)
+        if not self.with_gap:
+            x_pos = torch.cat((x[:, :1], x_pos), dim=1)
+        return x_pos
 
 class VisionTransformer(nn.Module):
     """ Vision Transformer with support for patch or hybrid CNN input stage
@@ -151,7 +178,8 @@ class VisionTransformer(nn.Module):
                  norm_layer=nn.LayerNorm,
                  use_checkpoint=False,
                  patch_norm=True,
-                 with_gap=False):
+                 with_gap=False,
+                 with_peg=False):
         super().__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -160,6 +188,7 @@ class VisionTransformer(nn.Module):
         self.with_gap = with_gap
         self.drop_path_rate = drop_path_rate
         self.use_checkpoint = use_checkpoint
+        self.with_peg = with_peg
 
         self.patch_embed = PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans,
@@ -185,6 +214,11 @@ class VisionTransformer(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=self.dpr[i],
                 norm_layer=norm_layer)
             for i in range(depth)])
+        if self.with_peg:
+            self.pegs = nn.ModuleList([
+                PEG(dim=embed_dim, out_dim=embed_dim, with_gap=self.with_gap)
+                for i in range(depth)])
+
         self.norm = norm_layer(embed_dim)
 
         # NOTE as per official impl, we could have a pre-logits representation dense layer + tanh here
@@ -217,18 +251,24 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token'}
 
-    def forward_blks(self, x):
-        for blk in self.blocks:
+    @torch.jit.ignore
+    def no_weight_decay_keywords(self):
+        return {'peg_conv'}
+
+    def forward_blks(self, x, hw_shape):
+        for i, blk in enumerate(self.blocks):
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
+            if self.with_peg:
+                x = self.pegs[i](x, hw_shape)
 
         return x
 
     def forward_features(self, x):
         B = x.shape[0]
-        x = self.patch_embed(x)
+        x, hw_shape = self.patch_embed(x)
 
         if self.with_cls_token:
             cls_tokens = self.cls_token.expand(B, -1,
@@ -237,7 +277,7 @@ class VisionTransformer(nn.Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        x = self.forward_blks(x)
+        x = self.forward_blks(x, hw_shape)
 
         # [B, L, C]
         x = self.norm(x)
@@ -262,11 +302,17 @@ class RecurrentVisionTransformer(VisionTransformer):
         self.recurrences = recurrences
         self.dpr = [x.item() for x in torch.linspace(0, self.drop_path_rate,
                                                      sum(recurrences))]  # stochastic depth decay rule
+        if self.with_peg:
+            self.pegs = nn.ModuleList([
+                PEG(dim=self.embed_dim, out_dim=self.embed_dim, with_gap=self.with_gap)
+                for i in range(sum(recurrences))])
 
-    def forward_blks(self, x):
+    def forward_blks(self, x, hw_shape):
         for i, blk in enumerate(self.blocks):
             for r in range(self.recurrences[i]):
                 x = blk(x, drop_prob=self.dpr[sum(self.recurrences[:i])+r])
+                if self.with_peg:
+                    x = self.pegs[sum(self.recurrences[:i])+r](x, hw_shape)
 
         return x
 

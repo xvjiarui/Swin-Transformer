@@ -46,7 +46,8 @@ def build_model(config):
                                   drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                   patch_norm=config.MODEL.VIT.PATCH_NORM,
                                   use_checkpoint=config.TRAIN.USE_CHECKPOINT,
-                                  with_gap=config.MODEL.VIT.WITH_GAP)
+                                  with_gap=config.MODEL.VIT.WITH_GAP,
+                                  with_peg=config.MODEL.VIT.WITH_PEG)
     elif model_type == 'mvit':
         model = MViT(img_size=config.DATA.IMG_SIZE,
                      in_chans=config.MODEL.MVIT.IN_CHANS,
@@ -94,7 +95,8 @@ def build_model(config):
                                            drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                            patch_norm=config.MODEL.RVIT.PATCH_NORM,
                                            use_checkpoint=config.TRAIN.USE_CHECKPOINT,
-                                           with_gap=config.MODEL.RVIT.WITH_GAP)
+                                           with_gap=config.MODEL.RVIT.WITH_GAP,
+                                           with_peg=config.MODEL.RVIT.WITH_PEG)
     elif model_type == 'rmvit':
         model = RecurrentMViT(img_size=config.DATA.IMG_SIZE,
                               in_chans=config.MODEL.RMVIT.IN_CHANS,

@@ -59,7 +59,7 @@ def parse_args():
     parser.add_argument("--gpus", type=int, default=8, help="number of gpus to use ")
     parser.add_argument("--mem", type=int, default=16, choices=[16, 32], help="amount of memory to use")
     parser.add_argument("--file", "-f", type=str, help="config txt file")
-    parser.add_argument("--limit", type=str, default='7d')
+    parser.add_argument("--limit", type=str, default='14d')
     parser.add_argument('--wandb', '-w', action='store_true', help='use wandb')
     parser.add_argument('--batch-size', type=int, help="batch size for single GPU")
     parser.add_argument(
@@ -156,7 +156,8 @@ def submit(config, args, rest):
         ace_type = 'norm'
         script = "tools/dist_mn_launch.sh"
         launch_cmd = f'{script} {config} {num_node} {gpus} --data-path {data_path} --web {py_args}'
-        # ngc_arg_dict['total-runtime'] = f'{128//num_node}h'
+        # ngc_arg_dict['total-runtime'] = f'{128}h'
+        ngc_arg_dict['total-runtime'] = f'{args.limit} '
         ngc_arg_dict['replicas'] = num_node
         ngc_arg_dict['array-type'] = 'MPI'
     else:

@@ -3,6 +3,12 @@
 #swin_small_patch4_window7_224.yaml
 #swin_large_patch4_window7_224.yaml
 #rvit_base_patch16_224.yaml
-vit_base_patch16_224.yaml
+#vit_base_patch16_224.yaml
 #mvit_base_patch16_224.yaml
 #rmvit_base_patch16_224.yaml
+#vit_large_patch16_224.yaml
+#rvit_large_patch16_224.yaml
+#cmvit_base_patch16_224.yaml
+#rcmvit_base_patch16_224.yaml
+vit-peg_base_patch16_224.yaml
+rvit-peg_base_patch16_224.yaml

@@ -1,0 +1,10 @@
+MODEL:
+  TYPE: rvit
+  DROP_PATH_RATE: 0.5
+  RVIT:
+    EMBED_DIM: 768
+    DEPTH: 1
+    NUM_HEADS: 12
+    RECURRENCES: [12]
+    WITH_GAP: true
+    WITH_PEG: true
