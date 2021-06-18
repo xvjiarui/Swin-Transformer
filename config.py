@@ -99,6 +99,7 @@ _C.MODEL.VIT.MLP_RATIO = 4.
 _C.MODEL.VIT.QKV_BIAS = True
 _C.MODEL.VIT.QK_SCALE = None
 _C.MODEL.VIT.PATCH_NORM = True
+_C.MODEL.VIT.WITH_GAP = False
 
 # Recurrent ViT
 _C.MODEL.RVIT = CN()
@@ -112,6 +113,7 @@ _C.MODEL.RVIT.MLP_RATIO = 4.
 _C.MODEL.RVIT.QKV_BIAS = True
 _C.MODEL.RVIT.QK_SCALE = None
 _C.MODEL.RVIT.PATCH_NORM = True
+_C.MODEL.RVIT.WITH_GAP = False
 
 # MViT
 _C.MODEL.MVIT = CN()
@@ -141,8 +143,9 @@ _C.MODEL.CMVIT = CN()
 _C.MODEL.CMVIT.IN_CHANS = 3
 _C.MODEL.CMVIT.EMBED_DIM = 96
 _C.MODEL.CMVIT.DEPTHS = [1, 1, 10, 1]
-_C.MODEL.CMVIT.CLUSTER_TOKENS = [64, 32, 16, 8]
+_C.MODEL.CMVIT.NUM_CLUSTERS = [64, 32, 16, 8]
 _C.MODEL.CMVIT.POOL_MODE = 'depth-conv'
+_C.MODEL.CMVIT.POOL_STAGES = [0, 1, 2]
 _C.MODEL.CMVIT.DIM_PER_HEAD = 96
 _C.MODEL.CMVIT.MLP_RATIO = 4.
 _C.MODEL.CMVIT.QKV_BIAS = True
@@ -155,8 +158,9 @@ _C.MODEL.RCMVIT.IN_CHANS = 3
 _C.MODEL.RCMVIT.EMBED_DIM = 96
 _C.MODEL.RCMVIT.DEPTHS = [1, 1, 1, 1]
 _C.MODEL.RCMVIT.RECURRENCES = [1, 1, 10, 1]
-_C.MODEL.RCMVIT.CLUSTER_TOKENS = [64, 32, 16, 8]
+_C.MODEL.RCMVIT.NUM_CLUSTERS = [64, 32, 16, 8]
 _C.MODEL.RCMVIT.POOL_MODE = 'depth-conv'
+_C.MODEL.RCMVIT.POOL_STAGES = [0, 1, 2]
 _C.MODEL.RCMVIT.DIM_PER_HEAD = 96
 _C.MODEL.RCMVIT.MLP_RATIO = 4.
 _C.MODEL.RCMVIT.QKV_BIAS = True
@@ -327,8 +331,10 @@ def update_config(config, args):
 
     world_size = int(os.environ['WORLD_SIZE'])
 
+    config.MODEL.NAME = config.MODEL.NAME+f'_bs{config.DATA.BATCH_SIZE}x{world_size}'
+
     # output folder
-    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME+f'_bs{config.DATA.BATCH_SIZE}x{world_size}', config.TAG)
+    config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)
 
     config.freeze()
 
