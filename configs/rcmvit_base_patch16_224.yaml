@@ -6,3 +6,5 @@ MODEL:
     DEPTHS: [1, 1, 1, 1]
     RECURRENCES: [1, 1, 10, 1]
     NUM_CLUSTERS: [64, 32, 16, 8]
+    POOL_MODE: unfold
+    WITH_GAP: true

@@ -78,7 +78,8 @@ def build_model(config):
                       drop_rate=config.MODEL.DROP_RATE,
                       drop_path_rate=config.MODEL.DROP_PATH_RATE,
                       patch_norm=config.MODEL.CMVIT.PATCH_NORM,
-                      use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+                      use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                      with_gap=config.MODEL.CMVIT.WITH_GAP)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,
@@ -129,7 +130,8 @@ def build_model(config):
                                drop_rate=config.MODEL.DROP_RATE,
                                drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                patch_norm=config.MODEL.RCMVIT.PATCH_NORM,
-                               use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+                               use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                               with_gap=config.MODEL.RCMVIT.WITH_GAP)
     elif model_type == 'gvit':
         model = GroupingVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                           in_chans=config.MODEL.GVIT.IN_CHANS,

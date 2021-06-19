@@ -153,6 +153,7 @@ _C.MODEL.CMVIT.MLP_RATIO = 4.
 _C.MODEL.CMVIT.QKV_BIAS = True
 _C.MODEL.CMVIT.QK_SCALE = None
 _C.MODEL.CMVIT.PATCH_NORM = True
+_C.MODEL.CMVIT.WITH_GAP = False
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()
@@ -168,6 +169,7 @@ _C.MODEL.RCMVIT.MLP_RATIO = 4.
 _C.MODEL.RCMVIT.QKV_BIAS = True
 _C.MODEL.RCMVIT.QK_SCALE = None
 _C.MODEL.RCMVIT.PATCH_NORM = True
+_C.MODEL.RCMVIT.WITH_GAP = False
 
 # -----------------------------------------------------------------------------
 # Training settings

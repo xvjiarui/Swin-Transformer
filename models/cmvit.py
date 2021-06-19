@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import to_2tuple, trunc_normal_, drop_path
 from einops import rearrange
+from einops.layers.torch import Rearrange
 
 
 class Mlp(nn.Module):
@@ -53,6 +54,9 @@ def attention_pool(tensor, pool, hw_shape, has_cls_embed=True, norm=None):
 
     tensor = pool(tensor)
 
+    # update C
+    C = tensor.shape[1]
+
     hw_shape = [tensor.shape[2], tensor.shape[3]]
     L_pooled = tensor.shape[2] * tensor.shape[3]
     # [B, N, L_pooled, C]
@@ -74,7 +78,8 @@ class SpatialPool(nn.Module):
         super(SpatialPool, self).__init__()
         self.hw_shape = hw_shape
         self.with_cls_token = with_cls_token
-        assert mode in ['depth-conv', 'conv', 'max', 'avg']
+        assert mode in ['depth-conv', 'conv', 'max', 'avg', 'unfold']
+        norm_dim = dim
         if mode == 'conv' or mode == 'depth-conv':
             self.pool = nn.Conv2d(
                     dim,
@@ -87,11 +92,16 @@ class SpatialPool(nn.Module):
             self.pool = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
         elif mode == 'avg':
             self.pool = nn.AvgPool2d(kernel_size=(2, 2), stride=(2, 2))
+        elif mode == 'unfold':
+            self.pool = nn.Sequential(
+                nn.Unfold(kernel_size=(2, 2), stride=(2, 2)),
+                Rearrange('b c (h w) -> b c h w', h=hw_shape[0]//2, w=hw_shape[1]//2))
+            norm_dim = 4 * dim
         else:
             raise NotImplementedError
 
-        self.norm = norm_layer(dim)
-        self.reduction = nn.Linear(dim, out_dim, bias=False)
+        self.norm = norm_layer(norm_dim)
+        self.reduction = nn.Linear(norm_dim, out_dim, bias=False)
 
     def forward(self, x):
         """
@@ -500,7 +510,7 @@ class CMViT(nn.Module):
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False,
-                 pool_mode='depth-conv',
+                 pool_mode='unfold',
                  pool_stages=[0, 1, 2],
                  assign_ratio=[4, 4, 4],
                  assign_type=('hard', 'inv'),
