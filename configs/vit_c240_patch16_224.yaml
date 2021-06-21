@@ -1,0 +1,7 @@
+MODEL:
+  TYPE: vit
+  DROP_PATH_RATE: 0.1
+  VIT:
+    EMBED_DIM: 240
+    DEPTH: 12
+    NUM_HEADS: 12
