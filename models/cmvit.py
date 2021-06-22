@@ -147,10 +147,14 @@ class AssignAttention(nn.Module):
         else:
             attn_dim = -1
         if self.hard:
-            attn = hard_softmax(attn, dim=attn_dim)
+            # attn = hard_softmax(attn, dim=attn_dim)
+            attn = F.gumbel_softmax(attn, dim=attn_dim, hard=True, tau=1)
         else:
             attn = F.softmax(attn, dim=attn_dim)
 
+        # if self.inv_attn:
+        #     attn = attn / (attn.norm(p=1, dim=-1, keepdim=True) + 1)
+        #
         return attn
 
     def forward(self, query, *, key=None, value=None, attn_weight=None):
@@ -232,7 +236,7 @@ class TokenAssign(nn.Module):
             merged_x = self.assign(query=merged_cluster_tokens, key=x[:, 1:])
         else:
             merged_x = self.assign(query=merged_cluster_tokens, key=x)
-        merged_x += merged_cluster_tokens
+        # merged_x += merged_cluster_tokens
 
         if self.with_cls_token:
             merged_x = torch.cat((x[:, :1], merged_x), dim=1)
@@ -626,7 +630,7 @@ class CMViT(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay_keywords(self):
-        return {'cluster_token'}
+        return {'cluster_token', 'anchor_token'}
 
     def forward_features(self, x):
         B = x.shape[0]
