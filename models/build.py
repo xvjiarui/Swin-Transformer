@@ -69,6 +69,7 @@ def build_model(config):
                       embed_dim=config.MODEL.CMVIT.EMBED_DIM,
                       depths=config.MODEL.CMVIT.DEPTHS,
                       num_clusters=config.MODEL.CMVIT.NUM_CLUSTERS,
+                      num_anchors=config.MODEL.CMVIT.NUM_ANCHORS,
                       pool_mode=config.MODEL.CMVIT.POOL_MODE,
                       pool_stages=config.MODEL.CMVIT.POOL_STAGES,
                       dim_per_head=config.MODEL.CMVIT.DIM_PER_HEAD,
@@ -79,7 +80,8 @@ def build_model(config):
                       drop_path_rate=config.MODEL.DROP_PATH_RATE,
                       patch_norm=config.MODEL.CMVIT.PATCH_NORM,
                       use_checkpoint=config.TRAIN.USE_CHECKPOINT,
-                      with_gap=config.MODEL.CMVIT.WITH_GAP)
+                      with_gap=config.MODEL.CMVIT.WITH_GAP,
+                      with_peg=config.MODEL.CMVIT.WITH_PEG)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,
@@ -131,7 +133,8 @@ def build_model(config):
                                drop_path_rate=config.MODEL.DROP_PATH_RATE,
                                patch_norm=config.MODEL.RCMVIT.PATCH_NORM,
                                use_checkpoint=config.TRAIN.USE_CHECKPOINT,
-                               with_gap=config.MODEL.RCMVIT.WITH_GAP)
+                               with_gap=config.MODEL.RCMVIT.WITH_GAP,
+                               with_peg=config.MODEL.RCMVIT.WITH_PEG)
     elif model_type == 'gvit':
         model = GroupingVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                           in_chans=config.MODEL.GVIT.IN_CHANS,

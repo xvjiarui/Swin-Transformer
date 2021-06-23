@@ -13,6 +13,7 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import to_2tuple, trunc_normal_, drop_path
 from einops import rearrange
 from einops.layers.torch import Rearrange
+from .vit import PEG
 
 
 class Mlp(nn.Module):
@@ -344,6 +345,39 @@ class CrossAttnBlock(nn.Module):
             x = self.reduction(x) + self.drop_path(self.mlp(self.norm2(x)), drop_prob=drop_prob)
         return x
 
+def window_partition(x, window_size, hw_shape):
+    """
+    Args:
+        x: (B, H*W, C)
+        window_size (int): window size
+        hw_shape (tuple[int]): Height, width of image
+
+    Returns:
+        windows: (num_windows*B, window_size, window_size, C)
+    """
+    B, _, C = x.shape
+    H, W = hw_shape
+    x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
+    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size * window_size, C)
+    return windows
+
+
+def window_reverse(windows, window_size, hw_shape):
+    """
+    Args:
+        windows: (num_windows*B, window_size* window_size, C)
+        window_size (int): Window size
+        hw_shape (tuple[int]): Height, width of image
+
+    Returns:
+        x: (B, H*W, C)
+    """
+    H, W = hw_shape
+    B = int(windows.shape[0] / (H * W / window_size / window_size))
+    x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H * W, -1)
+    return x
+
 
 class BasicLayer(nn.Module):
     """ A basic Transformer layer for one stage.
@@ -366,8 +400,10 @@ class BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, num_cluster,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False, with_cls_token=True):
+                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0.,
+                 attn_drop=0., drop_path=0., with_peg=False,
+                 norm_layer=nn.LayerNorm, downsample=None,
+                 use_checkpoint=False, with_cls_token=True):
 
         super().__init__()
         self.dim = dim
@@ -375,6 +411,9 @@ class BasicLayer(nn.Module):
         self.depth = depth
         self.use_checkpoint = use_checkpoint
         self.cluster_token = nn.Parameter(torch.zeros(1, num_cluster, dim))
+        trunc_normal_(self.cluster_token, std=.02)
+        self.with_cls_token = with_cls_token
+        self.with_peg = with_peg
 
         # build blocks
         self.depth = depth
@@ -401,7 +440,11 @@ class BasicLayer(nn.Module):
         # self.coord_proj = Mlp(in_features=coord_dim, out_features=out_dim)
         self.i2c_attn_blocks = nn.ModuleList(i2c_attn_blocks)
         self.c2i_attn_blocks = nn.ModuleList(c2i_attn_blocks)
-        trunc_normal_(self.cluster_token, std=.02)
+
+        if self.with_peg:
+            self.pegs = nn.ModuleList([
+                PEG(dim=dim, out_dim=dim, with_gap=not self.with_cls_token)
+                for i in range(depth)])
         self.downsample = downsample
         self.input_resolution = input_resolution
         self.use_checkpoint = use_checkpoint
@@ -413,7 +456,6 @@ class BasicLayer(nn.Module):
         cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
 
         B, L, C = x.shape
-        # coord_embed = self.coord_proj(coord)
         for blk_idx in range(self.depth):
             i2c_blk = self.i2c_attn_blocks[blk_idx]
             c2i_blk = self.c2i_attn_blocks[blk_idx]
@@ -425,6 +467,8 @@ class BasicLayer(nn.Module):
                     cluster_token,
                     torch.cat((cluster_token, x), dim=1))
                 x = c2i_blk(x, cluster_token)
+            if self.with_peg:
+                x = self.pegs[blk_idx](x, self.input_resolution)
 
         if self.downsample is not None:
             if isinstance(self.downsample, TokenAssign):
@@ -437,6 +481,135 @@ class BasicLayer(nn.Module):
     def extra_repr(self) -> str:
         return f"dim={self.dim}, input_resolution={self.input_resolution}, depth={self.depth}"
 
+
+class BasicWinLayer(nn.Module):
+    """ A basic Transformer layer for one stage.
+
+    Args:
+        dim (int): Number of input channels.
+        input_resolution (tuple[int]): Input resolution.
+        depth (int): Number of blocks.
+        num_heads (int): Number of attention heads.
+        window_size (int): Local window size.
+        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
+        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
+        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
+        drop (float, optional): Dropout rate. Default: 0.0
+        attn_drop (float, optional): Attention dropout rate. Default: 0.0
+        drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
+        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
+        downsample (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
+        use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
+    """
+
+    def __init__(self, dim, input_resolution, depth, num_heads, num_cluster,
+                 num_anchor,
+                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0.,
+                 attn_drop=0.,
+                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None,
+                 use_checkpoint=False, with_cls_token=True):
+
+        super().__init__()
+        self.dim = dim
+        self.input_resolution = input_resolution
+        self.depth = depth
+        self.use_checkpoint = use_checkpoint
+        self.with_cls_token = with_cls_token
+        self.cluster_token = nn.Parameter(torch.zeros(1, num_cluster, dim))
+        trunc_normal_(self.cluster_token, std=.02)
+        self.anchor_token = nn.Parameter(torch.zeros(1, num_anchor, dim))
+        trunc_normal_(self.anchor_token, std=.02)
+
+        # build blocks
+        self.depth = depth
+        i2c_attn_blocks = []
+        c2i_attn_blocks = []
+        i2c_win_attn_blocks = []
+        c2i_win_attn_blocks = []
+        for blk_idx in range(depth):
+            i2c_win_attn_blocks.append(
+                CrossAttnBlock(
+                    dim=dim, num_heads=num_heads,
+                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                    qk_scale=qk_scale, drop=drop,
+                    attn_drop=attn_drop,
+                    drop_path=drop_path[blk_idx],
+                    norm_layer=norm_layer,
+                    with_mlp=False))
+            c2i_win_attn_blocks.append(
+                CrossAttnBlock(
+                    dim=dim, num_heads=num_heads,
+                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                    qk_scale=qk_scale, drop=drop,
+                    attn_drop=attn_drop,
+                    drop_path=drop_path[blk_idx],
+                    norm_layer=norm_layer))
+            i2c_attn_blocks.append(
+                CrossAttnBlock(
+                    dim=dim, num_heads=num_heads,
+                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                    qk_scale=qk_scale, drop=drop,
+                    attn_drop=attn_drop,
+                    drop_path=drop_path[blk_idx],
+                    norm_layer=norm_layer,
+                    with_mlp=False))
+            c2i_attn_blocks.append(
+                CrossAttnBlock(
+                    dim=dim, num_heads=num_heads,
+                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                    qk_scale=qk_scale, drop=drop,
+                    attn_drop=attn_drop,
+                    drop_path=drop_path[blk_idx],
+                    norm_layer=norm_layer))
+        self.i2c_win_attn_blocks = nn.ModuleList(i2c_win_attn_blocks)
+        self.c2i_win_attn_blocks = nn.ModuleList(c2i_win_attn_blocks)
+        self.i2c_attn_blocks = nn.ModuleList(i2c_attn_blocks)
+        self.c2i_attn_blocks = nn.ModuleList(c2i_attn_blocks)
+        self.downsample = downsample
+        self.input_resolution = input_resolution
+        self.use_checkpoint = use_checkpoint
+
+        # patch merging layer
+        self.downsample = downsample
+
+    def forward(self, x):
+        cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
+        anchor_token = self.anchor_token.expand(x.size(0), -1, -1)
+        num_anchor = self.anchor_token.size(1)
+
+        B, L, C = x.shape
+        window_size = int((L//num_anchor) ** 0.5)
+        assert L == window_size ** 2 * num_anchor, f'{L} == {window_size} ** 2 * {num_anchor}'
+        anchor_token = rearrange(anchor_token, 'b n c -> (b n) () c')
+        for blk_idx in range(self.depth):
+            i2c_win_blk = self.i2c_win_attn_blocks[blk_idx]
+            c2i_win_blk = self.c2i_win_attn_blocks[blk_idx]
+            i2c_blk = self.i2c_attn_blocks[blk_idx]
+            c2i_blk = self.c2i_attn_blocks[blk_idx]
+            if self.use_checkpoint:
+                win_x = window_partition(x, window_size, self.input_resolution)
+                anchor_token = checkpoint.checkpoint(i2c_win_blk, anchor_token, torch.cat((anchor_token, win_x), dim=1))
+                win_x = checkpoint.checkpoint(c2i_win_blk, win_x, anchor_token)
+                x = window_reverse(win_x, window_size, self.input_resolution)
+                cluster_token = checkpoint.checkpoint(i2c_blk, cluster_token, torch.cat((cluster_token, x), dim=1))
+                x = checkpoint.checkpoint(c2i_blk, x, cluster_token)
+            else:
+                win_x = window_partition(x, window_size, self.input_resolution)
+                anchor_token = i2c_win_blk(anchor_token, torch.cat((anchor_token, win_x), dim=1))
+                win_x = c2i_win_blk(win_x, anchor_token)
+                x = window_reverse(win_x, window_size, self.input_resolution)
+                cluster_token= i2c_blk(
+                    cluster_token,
+                    torch.cat((cluster_token, x), dim=1))
+                x = c2i_blk(x, cluster_token)
+
+        if self.downsample is not None:
+            if isinstance(self.downsample, TokenAssign):
+                x, hw_shape = self.downsample(x, cluster_token)
+            else:
+                x, hw_shape = self.downsample(x)
+
+        return x
 
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
@@ -510,6 +683,7 @@ class CMViT(nn.Module):
     def __init__(self, img_size=224, in_chans=3, num_classes=1000,
                  embed_dim=96, depths=[1, 1, 10, 1], dim_per_head=96,
                  num_clusters=(64, 32, 16, 8),
+                 num_anchors=(0, 0, 0, 0),
                  mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
@@ -518,7 +692,8 @@ class CMViT(nn.Module):
                  pool_stages=[0, 1, 2],
                  assign_ratio=[4, 4, 4],
                  assign_type=('hard', 'inv'),
-                 with_gap=False):
+                 with_gap=False,
+                 with_peg=[0, 0, 0, 0]):
         super().__init__()
 
         self.num_classes = num_classes
@@ -536,7 +711,9 @@ class CMViT(nn.Module):
         self.with_gap = with_gap
         self.pool_mode = pool_mode
         self.num_clusters = num_clusters
+        self.num_anchors = num_anchors
         self.pool_stages = pool_stages
+        self.with_peg = with_peg
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
@@ -587,20 +764,38 @@ class CMViT(nn.Module):
                                              hard='hard' in assign_type,
                                              inv_attn='inv' in assign_type,
                                              with_cls_token=self.with_cls_token)
-            layer = BasicLayer(dim=dim,
-                               input_resolution=hw_shape,
-                               depth=depths[i_layer],
-                               num_heads=dim // dim_per_head,
-                               num_cluster=num_clusters[i_layer],
-                               mlp_ratio=self.mlp_ratio,
-                               qkv_bias=qkv_bias, qk_scale=qk_scale,
-                               drop=drop_rate, attn_drop=attn_drop_rate,
-                               drop_path=dpr[sum(depths[:i_layer]):sum(
-                                   depths[:i_layer + 1])],
-                               norm_layer=norm_layer,
-                               downsample=downsample,
-                               use_checkpoint=use_checkpoint,
-                               with_cls_token=self.with_cls_token)
+            if num_anchors[i_layer] > 0:
+                layer = BasicWinLayer(dim=dim,
+                                      input_resolution=hw_shape,
+                                      depth=depths[i_layer],
+                                      num_heads=dim // dim_per_head,
+                                      num_cluster=num_clusters[i_layer],
+                                      num_anchor=num_anchors[i_layer],
+                                      mlp_ratio=self.mlp_ratio,
+                                      qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                      drop=drop_rate, attn_drop=attn_drop_rate,
+                                      drop_path=dpr[sum(depths[:i_layer]):sum(
+                                          depths[:i_layer + 1])],
+                                      norm_layer=norm_layer,
+                                      downsample=downsample,
+                                      use_checkpoint=use_checkpoint,
+                                      with_cls_token=self.with_cls_token)
+            else:
+                layer = BasicLayer(dim=dim,
+                                   input_resolution=hw_shape,
+                                   depth=depths[i_layer],
+                                   num_heads=dim // dim_per_head,
+                                   num_cluster=num_clusters[i_layer],
+                                   mlp_ratio=self.mlp_ratio,
+                                   qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                   drop=drop_rate, attn_drop=attn_drop_rate,
+                                   drop_path=dpr[sum(depths[:i_layer]):sum(
+                                       depths[:i_layer + 1])],
+                                   norm_layer=norm_layer,
+                                   downsample=downsample,
+                                   use_checkpoint=use_checkpoint,
+                                   with_cls_token=self.with_cls_token,
+                                   with_peg=self.with_peg[i_layer] > 0)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
@@ -680,9 +875,12 @@ class RecurrentBasicLayer(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
     """
 
-    def __init__(self, dim, input_resolution, recurrence, num_heads, num_cluster,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False, with_cls_token=True):
+    def __init__(self, dim, input_resolution, recurrence, num_heads,
+                 num_cluster,
+                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0.,
+                 attn_drop=0., drop_path=0., with_peg=False,
+                 norm_layer=nn.LayerNorm, downsample=None,
+                 use_checkpoint=False, with_cls_token=True):
 
         super().__init__()
         self.dim = dim
@@ -690,6 +888,7 @@ class RecurrentBasicLayer(nn.Module):
         self.recurrence = recurrence
         self.use_checkpoint = use_checkpoint
         self.cluster_token = nn.Parameter(torch.zeros(1, num_cluster, dim))
+        self.with_peg = with_peg
 
         # build blocks
         self.i2c_attn_block = CrossAttnBlock(
@@ -706,6 +905,11 @@ class RecurrentBasicLayer(nn.Module):
             attn_drop=attn_drop,
             norm_layer=norm_layer)
         trunc_normal_(self.cluster_token, std=.02)
+
+        if self.with_peg:
+            self.pegs = nn.ModuleList([
+                PEG(dim=dim, out_dim=dim, with_gap=not self.with_cls_token)
+                for i in range(recurrence)])
         self.drop_path = drop_path
         self.downsample = downsample
         self.input_resolution = input_resolution
@@ -736,6 +940,8 @@ class RecurrentBasicLayer(nn.Module):
                     torch.cat((cluster_token, x), dim=1),
                     drop_prob=self.drop_path[blk_idx])
                 x = c2i_blk(x, cluster_token, drop_prob=self.drop_path[blk_idx])
+            if self.with_peg:
+                x = self.pegs[blk_idx](x, self.input_resolution)
 
         if self.downsample is not None:
             x, hw_shape = self.downsample(x)
@@ -791,7 +997,8 @@ class RecurrentCMViT(CMViT):
                                         norm_layer=nn.LayerNorm,
                                         downsample=downsample,
                                         use_checkpoint=False,
-                                        with_cls_token=self.with_cls_token)
+                                        with_cls_token=self.with_cls_token,
+                                        with_peg=self.with_peg[i_layer] > 0)
             self.layers.append(layer)
         assert len(recurrences) == len(self.layers)
 
