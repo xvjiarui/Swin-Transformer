@@ -19,4 +19,4 @@ MODEL:
     POOL_STAGES: [0, 1, 2]
     POOL_MODE: unfold
     WITH_GAP: true
-    WITH_PEG: true
+    WITH_PEG: [1, 1, 1, 1]
