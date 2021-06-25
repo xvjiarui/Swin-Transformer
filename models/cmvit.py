@@ -262,7 +262,7 @@ class TokenAssign(nn.Module):
             inter_weight = self.inter_attn(cluster_tokens, key=x)
         else:
             # [N, S_1, S_2]
-            inter_weight = self.out_inter_proj(cluster_tokens)
+            inter_weight = self.inter_proj(cluster_tokens)
         # [N, S_2, S_1]
         inter_weight = inter_weight.transpose(1, 2).softmax(dim=-1)
         return inter_weight
