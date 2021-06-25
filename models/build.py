@@ -83,10 +83,12 @@ def build_model(config):
                       assign_type=config.MODEL.CMVIT.ASSIGN_TYPE,
                       num_assign=config.MODEL.CMVIT.NUM_ASSIGN,
                       inter_mode=config.MODEL.CMVIT.INTER_MODE,
+                      assign_skip=config.MODEL.CMVIT.ASSIGN_SKIP,
                       with_mlp_inter=config.MODEL.CMVIT.WITH_MLP_INTER,
                       with_cluster_attn=config.MODEL.CMVIT.WITH_CLUSTER_ATTN,
                       with_gap=config.MODEL.CMVIT.WITH_GAP,
-                      with_peg=config.MODEL.CMVIT.WITH_PEG)
+                      with_peg=config.MODEL.CMVIT.WITH_PEG,
+                      pos_embed_type=config.MODEL.CMVIT.POS_EMBED_TYPE)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

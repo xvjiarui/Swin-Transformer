@@ -206,7 +206,7 @@ class TokenAssign(nn.Module):
     def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
-                 inter_mode='attn', with_mlp_inter=False):
+                 inter_mode='attn', with_mlp_inter=False, assign_skip=True):
         super(TokenAssign, self).__init__()
         self.hard = hard
         self.inv_attn = inv_attn
@@ -216,6 +216,7 @@ class TokenAssign(nn.Module):
         self.with_mlp_inter = with_mlp_inter
         self.with_cls_token = with_cls_token
         self.out_seq_len = out_seq_len
+        self.assign_skip = assign_skip
         # norm on cluster_tokens
         self.norm_tokens = norm_layer(dim)
         tokens_dim, channels_dim = [int(x * dim) for x in to_2tuple(mlp_ratio)]
@@ -245,7 +246,8 @@ class TokenAssign(nn.Module):
                f'hard={self.hard}, \n' \
                f'inv_attn={self.inv_attn}, \n' \
                f'gumbel={self.gumbel}, \n' \
-               f'out_seq_len={self.out_seq_len}'
+               f'out_seq_len={self.out_seq_len}, \n ' \
+               f'assign_skip={self.assign_skip}'
 
     def interpolate_token(self, x, cluster_tokens):
         """
@@ -291,7 +293,8 @@ class TokenAssign(nn.Module):
             new_x = self.assign(query=inter_cluster_tokens, key=x[:, 1:])
         else:
             new_x = self.assign(query=inter_cluster_tokens, key=x)
-        new_x += inter_cluster_tokens
+        if self.assign_skip:
+            new_x += inter_cluster_tokens
 
         if self.with_cls_token:
             new_x = torch.cat((x[:, :1], new_x), dim=1)
@@ -715,6 +718,44 @@ class PatchEmbed(nn.Module):
             x = self.norm(x)
         return x, hw_shape
 
+class PositionalEncodingFourier(nn.Module):
+    """
+    Positional encoding relying on a fourier kernel matching the one used in the
+    "Attention is all of Need" paper. The implementation builds on DeTR code
+    https://github.com/facebookresearch/detr/blob/master/models/position_encoding.py
+    """
+
+    def __init__(self, hidden_dim=32, dim=768, temperature=10000):
+        super().__init__()
+        self.token_projection = nn.Conv2d(hidden_dim * 2, dim, kernel_size=1)
+        self.scale = 2 * np.pi
+        self.temperature = temperature
+        self.hidden_dim = hidden_dim
+        self.dim = dim
+
+    def forward(self, B, H, W):
+        mask = torch.zeros(B, H, W).bool().to(self.token_projection.weight.device)
+        not_mask = ~mask
+        y_embed = not_mask.cumsum(1, dtype=torch.float32)
+        x_embed = not_mask.cumsum(2, dtype=torch.float32)
+        eps = 1e-6
+        y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
+        x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
+
+        dim_t = torch.arange(self.hidden_dim, dtype=torch.float32, device=mask.device)
+        dim_t = self.temperature ** (2 * (dim_t // 2) / self.hidden_dim)
+
+        pos_x = x_embed[:, :, :, None] / dim_t
+        pos_y = y_embed[:, :, :, None] / dim_t
+        pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(),
+                             pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(),
+                             pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        pos = self.token_projection(pos)
+        pos = rearrange(pos, 'b c h w -> b (h w) c')
+        return pos
+
 
 class CMViT(nn.Module):
     r""" Swin Transformer
@@ -754,11 +795,13 @@ class CMViT(nn.Module):
                  pool_stages=[0, 1, 2],
                  num_assign=[784, 196, 49],
                  assign_type=('gumbel', 'hard', 'inv'),
+                 assign_skip=True,
                  inter_mode='attn',
                  with_mlp_inter=False,
                  with_cluster_attn=True,
                  with_gap=False,
-                 with_peg=[0, 0, 0, 0]):
+                 with_peg=[0, 0, 0, 0],
+                 pos_embed_type='simple'):
         super().__init__()
 
         self.num_classes = num_classes
@@ -779,8 +822,10 @@ class CMViT(nn.Module):
         self.num_anchors = num_anchors
         self.pool_stages = pool_stages
         self.with_peg = with_peg
+        self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear']
         assert len(set(assign_type) - {'hard', 'inv', 'gumbel'}) == 0
+        assert pos_embed_type in ['simple', 'fourier']
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
@@ -792,12 +837,18 @@ class CMViT(nn.Module):
 
         if self.with_gap:
             self.avgpool = nn.AdaptiveAvgPool1d(1)
-            self.pos_embed = nn.Parameter(
-                torch.zeros(1, num_patches, embed_dim))
+            if pos_embed_type == 'simple':
+                self.pos_embed = nn.Parameter(
+                    torch.zeros(1, num_patches, embed_dim))
+                trunc_normal_(self.pos_embed, std=.02)
+            else:
+                self.pos_embed = PositionalEncodingFourier(dim=embed_dim)
         else:
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            assert pos_embed_type == 'simple'
             self.pos_embed = nn.Parameter(
                 torch.zeros(1, num_patches + 1, embed_dim))
+            trunc_normal_(self.pos_embed, std=.02)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -831,6 +882,7 @@ class CMViT(nn.Module):
                                              inv_attn='inv' in assign_type,
                                              gumbel='gumbel' in assign_type,
                                              inter_mode=inter_mode,
+                                             assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
                                              with_mlp_inter=with_mlp_inter)
             if num_anchors[i_layer] > 0:
@@ -871,7 +923,6 @@ class CMViT(nn.Module):
         self.norm = norm_layer(self.num_features)
         self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
-        trunc_normal_(self.pos_embed, std=.02)
         if self.with_cls_token:
             trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
@@ -897,6 +948,12 @@ class CMViT(nn.Module):
     def no_weight_decay_keywords(self):
         return {'cluster_token', 'anchor_token'}
 
+    def get_pos_embed(self, B, H, W):
+        if self.pos_embed_type == 'simple':
+            return self.pos_embed
+        else:
+            return self.pos_embed(B, H, W)
+
     def forward_features(self, x):
         B = x.shape[0]
         x, hw_shape = self.patch_embed(x)
@@ -905,7 +962,7 @@ class CMViT(nn.Module):
             cls_tokens = self.cls_token.expand(B, -1,
                                                -1)  # stole cls_tokens impl from Phil Wang, thanks
             x = torch.cat((cls_tokens, x), dim=1)
-        x = x + self.pos_embed
+        x = x + self.get_pos_embed(B, *hw_shape)
         x = self.pos_drop(x)
 
         for layer in self.layers:
