@@ -126,7 +126,7 @@ def hard_softmax(logits, dim):
 
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
-                 attn_drop=0., proj_drop=0., hard=True, inv_attn=True):
+                 attn_drop=0., proj_drop=0., hard=True, inv_attn=True, gumbel=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -141,20 +141,23 @@ class AssignAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.hard = hard
         self.inv_attn = inv_attn
+        self.gumbel = gumbel
 
     def get_attn(self, attn):
         if self.inv_attn:
             attn_dim = -2
         else:
             attn_dim = -1
-        if self.hard:
-            # attn = hard_softmax(attn, dim=attn_dim)
-            attn = F.gumbel_softmax(attn, dim=attn_dim, hard=True, tau=1)
+        if self.gumbel and self.training:
+            attn = F.gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
         else:
-            attn = F.softmax(attn, dim=attn_dim)
+            if self.hard:
+                attn = hard_softmax(attn, dim=attn_dim)
+            else:
+                attn = F.softmax(attn, dim=attn_dim)
 
-        # if self.inv_attn:
-        #     attn = attn / (attn.norm(p=1, dim=-1, keepdim=True) + 1)
+        if self.inv_attn:
+            attn = attn / (attn.sum(dim=-1, keepdim=True) + 1)
         #
         return attn
 
@@ -195,62 +198,115 @@ class AssignAttention(nn.Module):
 
     def extra_repr(self) -> str:
         return f'hard: {self.hard}, \n' \
-               f'inv_attn: {self.inv_attn}'
+               f'inv_attn: {self.inv_attn}, \n' \
+               f'gumbel: {self.gumbel}'
 
 class TokenAssign(nn.Module):
 
-    def __init__(self, dim, out_dim, num_heads, num_cluster,  out_seq_len, with_cls_token, norm_layer,
-                 mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True):
+    def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
+                 with_cls_token, norm_layer,
+                 mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
+                 inter_mode='attn', with_mlp_inter=False):
         super(TokenAssign, self).__init__()
-        self.norm1 = norm_layer(dim)
+        self.hard = hard
+        self.inv_attn = inv_attn
+        self.gumbel = gumbel
+        assert inter_mode in ['attn', 'linear']
+        self.inter_mode = inter_mode
+        self.with_mlp_inter = with_mlp_inter
+        self.with_cls_token = with_cls_token
+        self.out_seq_len = out_seq_len
+        # norm on cluster_tokens
+        self.norm_tokens = norm_layer(dim)
         tokens_dim, channels_dim = [int(x * dim) for x in to_2tuple(mlp_ratio)]
-        self.mlp_tokens = Mlp(num_cluster, tokens_dim, out_seq_len)
-        self.norm2 = norm_layer(dim)
-        self.norm3 = norm_layer(dim)
+        if with_mlp_inter:
+            self.mlp_inter = Mlp(num_cluster, tokens_dim, out_seq_len)
+            self.norm_post_tokens = norm_layer(dim)
+        if inter_mode == 'attn':
+            self.inter_attn = Attention(dim=dim, out_dim=out_seq_len, num_heads=num_heads, qkv_bias=True)
+        else:
+            self.inter_proj = nn.Linear(dim, out_seq_len)
+        # norm on x
+        self.norm_x = norm_layer(dim)
         self.assign = AssignAttention(dim=dim, num_heads=num_heads,
                                       qkv_bias=True, hard=hard,
-                                      inv_attn=inv_attn)
-        self.norm4 = norm_layer(dim)
+                                      inv_attn=inv_attn, gumbel=gumbel)
+        self.norm_new_x = norm_layer(dim)
         self.mlp_channels = Mlp(dim, channels_dim, out_dim)
         if out_dim is not None and dim != out_dim:
-            self.reduction = nn.Sequential(norm_layer(dim),
-                                           nn.Linear(dim, out_dim,
-                                                     bias=False))
+            self.reduction = nn.Sequential(
+                norm_layer(dim),
+                nn.Linear(dim, out_dim, bias=False))
         else:
             self.reduction = nn.Identity()
-        self.hard = hard
-        self.with_cls_token = with_cls_token
+
+    def extra_repr(self) -> str:
+        return f'inter_mode={self.inter_mode}, \n' \
+               f'hard={self.hard}, \n' \
+               f'inv_attn={self.inv_attn}, \n' \
+               f'gumbel={self.gumbel}, \n' \
+               f'out_seq_len={self.out_seq_len}'
+
+    def interpolate_token(self, x, cluster_tokens):
+        """
+        Args:
+            x (torch.Tensor): image tokens, [B, L, C]
+            cluster_tokens (torch.Tensor): cluster tokens, [B, S_1, C]
+
+        Returns:
+            inter_weight (torch.Tensor): [B, S_2, S_1], S_2 is the new number of cluster tokens,
+                it's already softmaxed along dim=-1
+        """
+        if self.inter_mode == 'attn':
+            # [N, S_1, S_2]
+            inter_weight = self.inter_attn(cluster_tokens, key=x)
+        else:
+            # [N, S_1, S_2]
+            inter_weight = self.out_inter_proj(cluster_tokens)
+        # [N, S_2, S_1]
+        inter_weight = inter_weight.transpose(1, 2).softmax(dim=-1)
+        return inter_weight
 
     def forward(self, x, cluster_tokens):
         """
         Args:
             x (torch.Tensor): image tokens, [B, L, C]
-            cluster_tokens (torch.Tensor): cluster tokens, [B, L_1, C]
+            cluster_tokens (torch.Tensor): cluster tokens, [B, S_1, C]
+
+        Returns:
+            new_x (torch.Tensor): [B, S_2, C], S_2 is the new number of cluster tokens
         """
-        # [B, L_2, C] <- [B, L_1, C]
-        merged_cluster_tokens = self.mlp_tokens(self.norm1(cluster_tokens).transpose(1, 2)).transpose(1, 2)
-        # [B, L_2, C]
-        x = self.norm2(x)
-        merged_cluster_tokens = self.norm3(merged_cluster_tokens)
-        # merged_x = merged_cluster_tokens + self.assign(query=merged_cluster_tokens, key=x)
+        cluster_tokens = self.norm_tokens(cluster_tokens)
+        x = self.norm_x(x)
+        # interpolation weight, [B, S_2, S_1]
+        inter_weight = self.interpolate_token(x, cluster_tokens)
+        # [B, S_2, C]
+        inter_cluster_tokens = inter_weight @ cluster_tokens
+        if self.with_mlp_inter:
+            # [B, S_2, C] <- [B, S_1, C]
+            inter_cluster_tokens_res = self.mlp_inter(cluster_tokens.transpose(1, 2)).transpose(1, 2)
+            inter_cluster_tokens_res = self.norm_post_tokens(inter_cluster_tokens_res)
+            inter_cluster_tokens += inter_cluster_tokens_res
         if self.with_cls_token:
-            merged_x = self.assign(query=merged_cluster_tokens, key=x[:, 1:])
+            new_x = self.assign(query=inter_cluster_tokens, key=x[:, 1:])
         else:
-            merged_x = self.assign(query=merged_cluster_tokens, key=x)
-        # merged_x += merged_cluster_tokens
+            new_x = self.assign(query=inter_cluster_tokens, key=x)
+        new_x += inter_cluster_tokens
 
         if self.with_cls_token:
-            merged_x = torch.cat((x[:, :1], merged_x), dim=1)
+            new_x = torch.cat((x[:, :1], new_x), dim=1)
 
-        merged_x = self.reduction(merged_x) + self.mlp_channels(self.norm4(merged_x))
+        new_x = self.reduction(new_x) + self.mlp_channels(self.norm_new_x(new_x))
 
-        return merged_x, None
+        return new_x, None
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
+    def __init__(self, dim, out_dim=None, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0.):
         super().__init__()
+        if out_dim is None:
+            out_dim = dim
         self.num_heads = num_heads
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
@@ -260,7 +316,7 @@ class Attention(nn.Module):
         self.k_proj = nn.Linear(dim, dim, bias=qkv_bias)
         self.v_proj = nn.Linear(dim, dim, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
+        self.proj = nn.Linear(dim, out_dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, query, *, key=None, value=None, attn_weight=None,
@@ -403,7 +459,8 @@ class BasicLayer(nn.Module):
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0.,
                  attn_drop=0., drop_path=0., with_peg=False,
                  norm_layer=nn.LayerNorm, downsample=None,
-                 use_checkpoint=False, with_cls_token=True):
+                 use_checkpoint=False, with_cls_token=True,
+                 with_i2c_mlp=False, with_cluster_attn=True):
 
         super().__init__()
         self.dim = dim
@@ -414,6 +471,8 @@ class BasicLayer(nn.Module):
         trunc_normal_(self.cluster_token, std=.02)
         self.with_cls_token = with_cls_token
         self.with_peg = with_peg
+        self.with_i2c_mlp = with_i2c_mlp
+        self.with_cluster_attn = with_cluster_attn
 
         # build blocks
         self.depth = depth
@@ -428,7 +487,7 @@ class BasicLayer(nn.Module):
                     attn_drop=attn_drop,
                     drop_path=drop_path[blk_idx],
                     norm_layer=norm_layer,
-                    with_mlp=False))
+                    with_mlp=with_i2c_mlp))
             c2i_attn_blocks.append(
                 CrossAttnBlock(
                     dim=dim, num_heads=num_heads,
@@ -452,6 +511,10 @@ class BasicLayer(nn.Module):
         # patch merging layer
         self.downsample = downsample
 
+    def extra_repr(self) -> str:
+        return f"dim={self.dim}, input_resolution={self.input_resolution}, " \
+               f"depth={self.depth}, with_cluster_attn={self.with_cluster_attn}"
+
     def forward(self, x):
         cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
 
@@ -459,13 +522,15 @@ class BasicLayer(nn.Module):
         for blk_idx in range(self.depth):
             i2c_blk = self.i2c_attn_blocks[blk_idx]
             c2i_blk = self.c2i_attn_blocks[blk_idx]
+            if self.with_cluster_attn:
+                i2c_key = torch.cat((cluster_token, x), dim=1)
+            else:
+                i2c_key = x
             if self.use_checkpoint:
-                cluster_token = checkpoint.checkpoint(i2c_blk, cluster_token, torch.cat((cluster_token, x), dim=1))
+                cluster_token = checkpoint.checkpoint(i2c_blk, cluster_token, i2c_key)
                 x = checkpoint.checkpoint(c2i_blk, x, cluster_token)
             else:
-                cluster_token= i2c_blk(
-                    cluster_token,
-                    torch.cat((cluster_token, x), dim=1))
+                cluster_token= i2c_blk(cluster_token, i2c_key)
                 x = c2i_blk(x, cluster_token)
             if self.with_peg:
                 x = self.pegs[blk_idx](x, self.input_resolution)
@@ -477,9 +542,6 @@ class BasicLayer(nn.Module):
                 x, hw_shape = self.downsample(x)
 
         return x
-
-    def extra_repr(self) -> str:
-        return f"dim={self.dim}, input_resolution={self.input_resolution}, depth={self.depth}"
 
 
 class BasicWinLayer(nn.Module):
@@ -690,8 +752,11 @@ class CMViT(nn.Module):
                  use_checkpoint=False,
                  pool_mode='unfold',
                  pool_stages=[0, 1, 2],
-                 assign_ratio=[4, 4, 4],
-                 assign_type=('hard', 'inv'),
+                 num_assign=[784, 196, 49],
+                 assign_type=('gumbel', 'hard', 'inv'),
+                 inter_mode='attn',
+                 with_mlp_inter=False,
+                 with_cluster_attn=True,
                  with_gap=False,
                  with_peg=[0, 0, 0, 0]):
         super().__init__()
@@ -714,6 +779,8 @@ class CMViT(nn.Module):
         self.num_anchors = num_anchors
         self.pool_stages = pool_stages
         self.with_peg = with_peg
+        assert inter_mode in ['attn', 'linear']
+        assert len(set(assign_type) - {'hard', 'inv', 'gumbel'}) == 0
 
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
@@ -758,12 +825,14 @@ class CMViT(nn.Module):
                                              out_dim=out_dim,
                                              num_heads=dim // dim_per_head,
                                              num_cluster=num_clusters[i_layer],
-                                             out_seq_len=np.prod(hw_shape) //
-                                                         assign_ratio[i_layer],
+                                             out_seq_len=num_assign[i_layer],
                                              norm_layer=norm_layer,
                                              hard='hard' in assign_type,
                                              inv_attn='inv' in assign_type,
-                                             with_cls_token=self.with_cls_token)
+                                             gumbel='gumbel' in assign_type,
+                                             inter_mode=inter_mode,
+                                             with_cls_token=self.with_cls_token,
+                                             with_mlp_inter=with_mlp_inter)
             if num_anchors[i_layer] > 0:
                 layer = BasicWinLayer(dim=dim,
                                       input_resolution=hw_shape,
@@ -795,7 +864,8 @@ class CMViT(nn.Module):
                                    downsample=downsample,
                                    use_checkpoint=use_checkpoint,
                                    with_cls_token=self.with_cls_token,
-                                   with_peg=self.with_peg[i_layer] > 0)
+                                   with_peg=self.with_peg[i_layer] > 0,
+                                   with_cluster_attn=with_cluster_attn)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)

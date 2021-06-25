@@ -80,6 +80,11 @@ def build_model(config):
                       drop_path_rate=config.MODEL.DROP_PATH_RATE,
                       patch_norm=config.MODEL.CMVIT.PATCH_NORM,
                       use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                      assign_type=config.MODEL.CMVIT.ASSIGN_TYPE,
+                      num_assign=config.MODEL.CMVIT.NUM_ASSIGN,
+                      inter_mode=config.MODEL.CMVIT.INTER_MODE,
+                      with_mlp_inter=config.MODEL.CMVIT.WITH_MLP_INTER,
+                      with_cluster_attn=config.MODEL.CMVIT.WITH_CLUSTER_ATTN,
                       with_gap=config.MODEL.CMVIT.WITH_GAP,
                       with_peg=config.MODEL.CMVIT.WITH_PEG)
     elif model_type == 'rvit':
