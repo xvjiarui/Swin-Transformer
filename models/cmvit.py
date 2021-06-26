@@ -147,7 +147,8 @@ def hard_softmax_sample(attn, dim):
 
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
-                 attn_drop=0., proj_drop=0., hard=True, inv_attn=True, gumbel=False):
+                 attn_drop=0., proj_drop=0., hard=True, inv_attn=True,
+                 gumbel=False, categorical=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -163,6 +164,9 @@ class AssignAttention(nn.Module):
         self.hard = hard
         self.inv_attn = inv_attn
         self.gumbel = gumbel
+        self.categorical = categorical
+        if categorical:
+            assert hard
 
     def get_attn(self, attn):
         if self.inv_attn:
@@ -171,6 +175,8 @@ class AssignAttention(nn.Module):
             attn_dim = -1
         if self.gumbel and self.training:
             attn = F.gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
+        elif self.categorical and self.training:
+            attn = hard_softmax_sample(attn, dim=attn_dim)
         else:
             if self.hard:
                 attn = hard_softmax(attn, dim=attn_dim)
@@ -220,18 +226,21 @@ class AssignAttention(nn.Module):
     def extra_repr(self) -> str:
         return f'hard: {self.hard}, \n' \
                f'inv_attn: {self.inv_attn}, \n' \
-               f'gumbel: {self.gumbel}'
+               f'gumbel: {self.gumbel}, \n' \
+               f'categorical={self.categorical}'
 
 class TokenAssign(nn.Module):
 
     def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
-                 inter_mode='attn', with_mlp_inter=False, assign_skip=True):
+                 categorical=False, inter_mode='attn', with_mlp_inter=False,
+                 assign_skip=True):
         super(TokenAssign, self).__init__()
         self.hard = hard
         self.inv_attn = inv_attn
         self.gumbel = gumbel
+        self.categorical = categorical
         assert inter_mode in ['attn', 'linear']
         self.inter_mode = inter_mode
         self.with_mlp_inter = with_mlp_inter
@@ -252,7 +261,8 @@ class TokenAssign(nn.Module):
         self.norm_x = norm_layer(dim)
         self.assign = AssignAttention(dim=dim, num_heads=num_heads,
                                       qkv_bias=True, hard=hard,
-                                      inv_attn=inv_attn, gumbel=gumbel)
+                                      inv_attn=inv_attn, gumbel=gumbel,
+                                      categorical=categorical)
         self.norm_new_x = norm_layer(dim)
         self.mlp_channels = Mlp(dim, channels_dim, out_dim)
         if out_dim is not None and dim != out_dim:
@@ -267,6 +277,7 @@ class TokenAssign(nn.Module):
                f'hard={self.hard}, \n' \
                f'inv_attn={self.inv_attn}, \n' \
                f'gumbel={self.gumbel}, \n' \
+               f'categorical={self.categorical}, \n' \
                f'out_seq_len={self.out_seq_len}, \n ' \
                f'assign_skip={self.assign_skip}'
 
@@ -849,7 +860,7 @@ class CMViT(nn.Module):
         self.with_peg = with_peg
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear']
-        assert len(set(assign_type) - {'hard', 'inv', 'gumbel'}) == 0
+        assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
 
         if patch_size == 16:
@@ -915,6 +926,7 @@ class CMViT(nn.Module):
                                              hard='hard' in assign_type,
                                              inv_attn='inv' in assign_type,
                                              gumbel='gumbel' in assign_type,
+                                             categorical='categorical' in assign_type,
                                              inter_mode=inter_mode,
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
