@@ -124,6 +124,27 @@ def hard_softmax(logits, dim):
 
     return ret
 
+def hard_softmax_sample(attn, dim):
+    """
+    Args:
+        attn (torch.Tensor): the attention map, shape [B, L, S]
+        dim (int): dimension to perform softmax
+    """
+    y_soft = F.log_softmax(attn, dim=dim)
+    if dim != -1 or dim != attn.ndim -1:
+        swap_dim = -1
+        y_soft = y_soft.transpose(swap_dim, dim)
+    else:
+        swap_dim = dim
+    index = torch.distributions.categorical.Categorical(logits=y_soft).sample().unsqueeze(-1)
+    y_hard = torch.zeros_like(y_soft).scatter_(-1, index, 1.0)
+    ret = y_hard - y_soft.detach() + y_soft
+
+    if swap_dim != dim:
+        ret = ret.transpose(swap_dim, dim)
+
+    return ret
+
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., hard=True, inv_attn=True, gumbel=False):
@@ -783,8 +804,12 @@ class CMViT(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=224, in_chans=3, num_classes=1000,
-                 embed_dim=96, depths=[1, 1, 10, 1], dim_per_head=96,
+    def __init__(self,
+                 img_size=224,
+                 patch_size=4,
+                 in_chans=3, num_classes=1000,
+                 embed_dim=96, embed_factors=[1, 2, 4, 8],
+                 depths=[1, 1, 10, 1], dim_per_head=96,
                  num_clusters=(64, 32, 16, 8),
                  num_anchors=(0, 0, 0, 0),
                  mlp_ratio=4., qkv_bias=True, qk_scale=None,
@@ -803,7 +828,7 @@ class CMViT(nn.Module):
                  with_peg=[0, 0, 0, 0],
                  pos_embed_type='simple'):
         super().__init__()
-
+        assert patch_size in [4, 16]
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
@@ -827,10 +852,19 @@ class CMViT(nn.Module):
         assert len(set(assign_type) - {'hard', 'inv', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
 
-        # split image into non-overlapping patches
-        self.patch_embed = PatchEmbed(
-            img_size=img_size, in_chans=in_chans, embed_dim=embed_dim,
-            norm_layer=norm_layer if self.patch_norm else None)
+        if patch_size == 16:
+            # split image into non-overlapping patches
+            self.patch_embed = PatchEmbed(
+                img_size=img_size,
+                kernel_size=16,
+                stride=16,
+                padding=0,
+                in_chans=in_chans, embed_dim=embed_dim,
+                norm_layer=norm_layer if self.patch_norm else None)
+        else:
+            self.patch_embed = PatchEmbed(
+                img_size=img_size, in_chans=in_chans, embed_dim=embed_dim,
+                norm_layer=norm_layer if self.patch_norm else None)
         num_patches = self.patch_embed.num_patches
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
@@ -858,12 +892,12 @@ class CMViT(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
-            dim = int(embed_dim * 2 ** i_layer)
-            out_dim = dim * 2
+            dim = int(embed_dim * embed_factors[i_layer])
             hw_shape = (patches_resolution[0] // (2 ** i_layer),
                         patches_resolution[1] // (2 ** i_layer))
             downsample = None
             if i_layer < self.num_layers -1 :
+                out_dim = embed_dim * embed_factors[i_layer + 1]
                 if i_layer in self.pool_stages:
                     downsample = SpatialPool(mode=pool_mode,
                                              dim=dim,

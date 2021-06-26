@@ -64,9 +64,11 @@ def build_model(config):
                      use_checkpoint=config.TRAIN.USE_CHECKPOINT)
     elif model_type == 'cmvit':
         model = CMViT(img_size=config.DATA.IMG_SIZE,
+                      patch_size=config.MODEL.CMVIT.PATCH_SIZE,
                       in_chans=config.MODEL.CMVIT.IN_CHANS,
                       num_classes=config.MODEL.NUM_CLASSES,
                       embed_dim=config.MODEL.CMVIT.EMBED_DIM,
+                      embed_factors=config.MODEL.CMVIT.EMBED_FACTORS,
                       depths=config.MODEL.CMVIT.DEPTHS,
                       num_clusters=config.MODEL.CMVIT.NUM_CLUSTERS,
                       num_anchors=config.MODEL.CMVIT.NUM_ANCHORS,
