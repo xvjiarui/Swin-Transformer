@@ -834,7 +834,7 @@ class CMViT(nn.Module):
         self.embed_dim = embed_dim
         self.dim_per_head = dim_per_head
         self.patch_norm = patch_norm
-        self.num_features = int(embed_dim * embed_factors[-1])
+        self.num_features = int(embed_dim * embed_factors[len(depths)-1])
         self.mlp_ratio = mlp_ratio
         self.qkv_bias = qkv_bias
         self.qk_scale = qk_scale
