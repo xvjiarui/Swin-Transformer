@@ -91,7 +91,9 @@ def build_model(config):
                       decouple_cluster_attn=config.MODEL.CMVIT.DECOUPLE_CLUSTER_ATTN,
                       with_gap=config.MODEL.CMVIT.WITH_GAP,
                       with_peg=config.MODEL.CMVIT.WITH_PEG,
-                      pos_embed_type=config.MODEL.CMVIT.POS_EMBED_TYPE)
+                      pos_embed_type=config.MODEL.CMVIT.POS_EMBED_TYPE,
+                      cluster_mlp_type=config.MODEL.CMVIT.CLUSTER_MLP_TYPE,
+                      cluster_token_wd=config.MODEL.CMVIT.CLUSTER_TOKEN_WD)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

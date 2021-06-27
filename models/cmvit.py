@@ -422,6 +422,8 @@ class CrossAttnBlock(nn.Module):
                                                          bias=False))
             else:
                 self.reduction = nn.Identity()
+    def extra_repr(self) -> str:
+        return f"drop_path_prob={self.drop_path_prob}"
 
     def drop_path(self, x, drop_prob):
         if drop_prob is None:
@@ -495,7 +497,7 @@ class BasicLayer(nn.Module):
                  attn_drop=0., drop_path=0., with_peg=False,
                  norm_layer=nn.LayerNorm, downsample=None,
                  use_checkpoint=False, with_cls_token=True,
-                 with_i2c_mlp=False, with_cluster_attn=True,
+                 with_i2c_mlp=False, with_c2c_mlp=False, with_cluster_attn=True,
                  decouple_cluster_attn=False):
 
         super().__init__()
@@ -545,7 +547,7 @@ class BasicLayer(nn.Module):
                         attn_drop=attn_drop,
                         drop_path=drop_path[blk_idx],
                         norm_layer=norm_layer,
-                        with_mlp=False))
+                        with_mlp=with_c2c_mlp))
             self.c2c_attn_blocks = nn.ModuleList(c2c_attn_blocks)
 
         # self.coord_proj = Mlp(in_features=coord_dim, out_features=out_dim)
@@ -865,7 +867,9 @@ class CMViT(nn.Module):
                  decouple_cluster_attn=False,
                  with_gap=False,
                  with_peg=[0, 0, 0, 0],
-                 pos_embed_type='simple'):
+                 pos_embed_type='simple',
+                 cluster_mlp_type=[],
+                 cluster_token_wd=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -890,6 +894,8 @@ class CMViT(nn.Module):
         assert inter_mode in ['attn', 'linear']
         assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
+        assert len(set(cluster_mlp_type) - {'i2c', 'c2c'}) == 0
+        self.cluster_token_wd = cluster_token_wd
 
         if patch_size == 16:
             # split image into non-overlapping patches
@@ -992,7 +998,9 @@ class CMViT(nn.Module):
                                    with_cls_token=self.with_cls_token,
                                    with_peg=self.with_peg[i_layer] > 0,
                                    with_cluster_attn=with_cluster_attn,
-                                   decouple_cluster_attn=decouple_cluster_attn)
+                                   decouple_cluster_attn=decouple_cluster_attn,
+                                   with_i2c_mlp='i2c' in cluster_mlp_type,
+                                   with_c2c_mlp='c2c' in cluster_mlp_type)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
@@ -1021,7 +1029,10 @@ class CMViT(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay_keywords(self):
-        return {'cluster_token', 'anchor_token'}
+        keywords = {'anchor_token'}
+        if not self.cluster_token_wd:
+            keywords.add('cluster_token')
+        return keywords
 
     def get_pos_embed(self, B, H, W):
         if self.pos_embed_type == 'simple':
