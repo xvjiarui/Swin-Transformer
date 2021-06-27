@@ -495,19 +495,22 @@ class BasicLayer(nn.Module):
                  attn_drop=0., drop_path=0., with_peg=False,
                  norm_layer=nn.LayerNorm, downsample=None,
                  use_checkpoint=False, with_cls_token=True,
-                 with_i2c_mlp=False, with_cluster_attn=True):
+                 with_i2c_mlp=False, with_cluster_attn=True,
+                 decouple_cluster_attn=False):
 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
+        self.num_cluster = num_cluster
         self.cluster_token = nn.Parameter(torch.zeros(1, num_cluster, dim))
         trunc_normal_(self.cluster_token, std=.02)
         self.with_cls_token = with_cls_token
         self.with_peg = with_peg
         self.with_i2c_mlp = with_i2c_mlp
         self.with_cluster_attn = with_cluster_attn
+        self.decouple_cluster_attn = decouple_cluster_attn
 
         # build blocks
         self.depth = depth
@@ -531,6 +534,20 @@ class BasicLayer(nn.Module):
                     attn_drop=attn_drop,
                     drop_path=drop_path[blk_idx],
                     norm_layer=norm_layer))
+        if decouple_cluster_attn:
+            c2c_attn_blocks = []
+            for blk_idx in range(depth):
+                c2c_attn_blocks.append(
+                    CrossAttnBlock(
+                        dim=dim, num_heads=num_heads,
+                        mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                        qk_scale=qk_scale, drop=drop,
+                        attn_drop=attn_drop,
+                        drop_path=drop_path[blk_idx],
+                        norm_layer=norm_layer,
+                        with_mlp=False))
+            self.c2c_attn_blocks = nn.ModuleList(c2c_attn_blocks)
+
         # self.coord_proj = Mlp(in_features=coord_dim, out_features=out_dim)
         self.i2c_attn_blocks = nn.ModuleList(i2c_attn_blocks)
         self.c2i_attn_blocks = nn.ModuleList(c2i_attn_blocks)
@@ -547,8 +564,12 @@ class BasicLayer(nn.Module):
         self.downsample = downsample
 
     def extra_repr(self) -> str:
-        return f"dim={self.dim}, input_resolution={self.input_resolution}, " \
-               f"depth={self.depth}, with_cluster_attn={self.with_cluster_attn}"
+        return f"dim={self.dim}, \n" \
+               f"input_resolution={self.input_resolution}, \n" \
+               f"depth={self.depth}, \n" \
+               f"num_cluster={self.num_cluster}, \n" \
+               f"with_cluster_attn={self.with_cluster_attn}, \n" \
+               f"decouple_cluster_attn={self.decouple_cluster_attn}"
 
     def forward(self, x):
         cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
@@ -557,15 +578,21 @@ class BasicLayer(nn.Module):
         for blk_idx in range(self.depth):
             i2c_blk = self.i2c_attn_blocks[blk_idx]
             c2i_blk = self.c2i_attn_blocks[blk_idx]
-            if self.with_cluster_attn:
+            if self.with_cluster_attn and not self.decouple_cluster_attn:
                 i2c_key = torch.cat((cluster_token, x), dim=1)
             else:
                 i2c_key = x
             if self.use_checkpoint:
                 cluster_token = checkpoint.checkpoint(i2c_blk, cluster_token, i2c_key)
+                if self.decouple_cluster_attn:
+                    c2c_blk = self.c2c_attn_blocks[blk_idx]
+                    cluster_token = checkpoint.checkpoint(c2c_blk, cluster_token, cluster_token)
                 x = checkpoint.checkpoint(c2i_blk, x, cluster_token)
             else:
                 cluster_token= i2c_blk(cluster_token, i2c_key)
+                if self.decouple_cluster_attn:
+                    c2c_blk = self.c2c_attn_blocks[blk_idx]
+                    cluster_token = c2c_blk(cluster_token, cluster_token)
                 x = c2i_blk(x, cluster_token)
             if self.with_peg:
                 x = self.pegs[blk_idx](x, self.input_resolution)
@@ -835,6 +862,7 @@ class CMViT(nn.Module):
                  inter_mode='attn',
                  with_mlp_inter=False,
                  with_cluster_attn=True,
+                 decouple_cluster_attn=False,
                  with_gap=False,
                  with_peg=[0, 0, 0, 0],
                  pos_embed_type='simple'):
@@ -963,7 +991,8 @@ class CMViT(nn.Module):
                                    use_checkpoint=use_checkpoint,
                                    with_cls_token=self.with_cls_token,
                                    with_peg=self.with_peg[i_layer] > 0,
-                                   with_cluster_attn=with_cluster_attn)
+                                   with_cluster_attn=with_cluster_attn,
+                                   decouple_cluster_attn=decouple_cluster_attn)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)

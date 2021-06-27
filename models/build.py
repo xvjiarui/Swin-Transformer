@@ -88,6 +88,7 @@ def build_model(config):
                       assign_skip=config.MODEL.CMVIT.ASSIGN_SKIP,
                       with_mlp_inter=config.MODEL.CMVIT.WITH_MLP_INTER,
                       with_cluster_attn=config.MODEL.CMVIT.WITH_CLUSTER_ATTN,
+                      decouple_cluster_attn=config.MODEL.CMVIT.DECOUPLE_CLUSTER_ATTN,
                       with_gap=config.MODEL.CMVIT.WITH_GAP,
                       with_peg=config.MODEL.CMVIT.WITH_PEG,
                       pos_embed_type=config.MODEL.CMVIT.POS_EMBED_TYPE)
