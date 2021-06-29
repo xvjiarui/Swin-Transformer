@@ -93,7 +93,8 @@ def build_model(config):
                       with_peg=config.MODEL.CMVIT.WITH_PEG,
                       pos_embed_type=config.MODEL.CMVIT.POS_EMBED_TYPE,
                       cluster_mlp_type=config.MODEL.CMVIT.CLUSTER_MLP_TYPE,
-                      cluster_token_wd=config.MODEL.CMVIT.CLUSTER_TOKEN_WD)
+                      cluster_token_wd=config.MODEL.CMVIT.CLUSTER_TOKEN_WD,
+                      patch_embed_type=config.MODEL.CMVIT.PATCH_EMBED_TYPE)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

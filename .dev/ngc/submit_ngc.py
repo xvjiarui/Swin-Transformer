@@ -140,7 +140,7 @@ def submit(config, args, rest):
     if args.wandb:
         ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
 
-    ngc_arg_dict['name'] = f'{base_config}_bs{batch_size}x{args.gpus}'
+    ngc_arg_dict['name'] = f'ml-model.vit-jx.{base_config}_bs{batch_size}x{args.gpus}'
     ngc_arg_dict['image'] = "nvcr.io/nvidian/lpr/swin:latest"
     ngc_arg_dict['workspace'] = f'{args.work_space}:/work_dirs:RW'
     ngc_arg_dict['result'] = '/result'
@@ -186,9 +186,14 @@ def main():
         if args.file is not None:
             with open(args.file) as f:
                 submit_cfg_names = [line.strip() for line in f.readlines()]
-            for cfg in scandir(args.config, recursive=True):
-                if osp.basename(cfg) in submit_cfg_names:
-                    submit(osp.join(args.config, cfg), args, rest)
+            name_mappings = {}
+            for cfg in scandir(args.config, recursive=True, suffix='.yaml'):
+                name_mappings[osp.basename(cfg)] = cfg
+                # if osp.basename(cfg) in submit_cfg_names:
+                #     submit(osp.join(args.config, cfg), args, rest)
+            for base_cfg in submit_cfg_names:
+                if base_cfg in name_mappings:
+                    submit(osp.join(args.config, name_mappings[base_cfg]), args, rest)
         else:
             for cfg in scandir(args.config, suffix=".yaml"):
                 if "playground" in cfg:

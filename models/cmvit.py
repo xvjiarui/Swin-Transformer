@@ -145,6 +145,28 @@ def hard_softmax_sample(attn, dim):
 
     return ret
 
+def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim: int = -1) -> torch.Tensor:
+    _gumbels = (
+        -torch.empty_like(logits, memory_format=torch.legacy_contiguous_format).exponential_().log()
+    )  # ~Gumbel(0,1)
+    gumbel_dist = torch.distributions.gumbel.Gumbel(
+        torch.tensor(0., device=logits.device, dtype=logits.dtype),
+        torch.tensor(1., device=logits.device, dtype=logits.dtype))
+    gumbels = gumbel_dist.sample(logits.shape)
+
+    gumbels = (logits + gumbels) / tau  # ~Gumbel(logits,tau)
+    y_soft = gumbels.softmax(dim)
+
+    if hard:
+        # Straight through.
+        index = y_soft.max(dim, keepdim=True)[1]
+        y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format).scatter_(dim, index, 1.0)
+        ret = y_hard - y_soft.detach() + y_soft
+    else:
+        # Reparametrization trick.
+        ret = y_soft
+    return ret
+
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., hard=True, inv_attn=True,
@@ -779,6 +801,65 @@ class PatchEmbed(nn.Module):
             x = self.norm(x)
         return x, hw_shape
 
+class DeepPatchEmbed(nn.Module):
+    """ Deep stem from https://arxiv.org/pdf/2106.14881.pdf
+    """
+
+    def __init__(self, img_size=224, total_stride=16,
+                 in_chans=3, embed_dim=768, norm_type='BN', depthwise=True):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        self.img_size = img_size
+        self.patches_resolution = (img_size[1]//total_stride, img_size[0]//total_stride)
+        assert norm_type in ['LN', 'BN']
+
+        num_convs = int(np.log2(total_stride))
+        stem = []
+        prev_out_channels = in_chans
+        out_channels = embed_dim // 2**(num_convs -1)
+        for i in range(num_convs):
+            stem.append(nn.Conv2d(
+                in_channels=prev_out_channels,
+                out_channels=out_channels,
+                kernel_size=(3, 3),
+                stride=(2, 2),
+                padding=(1, 1),
+                groups=prev_out_channels if depthwise else 1,
+                bias=False))
+            if norm_type == 'BN':
+                stem.append(nn.BatchNorm2d(out_channels))
+            else:
+                stem.extend([Rearrange('b c h w -> b h w c'),
+                             nn.LayerNorm(out_channels),
+                             Rearrange('b h w c -> b c h w')])
+            stem.append(nn.ReLU(inplace=True))
+            prev_out_channels = out_channels
+            if i < num_convs -1:
+                out_channels *= 2
+        stem.append(nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=(1, 1),
+            stride=(1, 1),
+            padding=(0, 0),
+            bias=True))
+        self.stem = nn.Sequential(*stem)
+
+    @property
+    def num_patches(self):
+        return self.patches_resolution[1] * self.patches_resolution[0]
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        if self.training:
+            # FIXME look at relaxing size constraints
+            assert H == self.img_size[0] and W == self.img_size[1], \
+                f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        x = self.stem(x)
+        hw_shape = x.shape[2:]
+        x = x.flatten(2).transpose(1, 2)
+        return x, hw_shape
+
 class PositionalEncodingFourier(nn.Module):
     """
     Positional encoding relying on a fourier kernel matching the one used in the
@@ -869,7 +950,8 @@ class CMViT(nn.Module):
                  with_peg=[0, 0, 0, 0],
                  pos_embed_type='simple',
                  cluster_mlp_type=[],
-                 cluster_token_wd=False):
+                 cluster_token_wd=False,
+                 patch_embed_type='simple'):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -896,20 +978,27 @@ class CMViT(nn.Module):
         assert pos_embed_type in ['simple', 'fourier']
         assert len(set(cluster_mlp_type) - {'i2c', 'c2c'}) == 0
         self.cluster_token_wd = cluster_token_wd
+        assert patch_embed_type in ['simple', 'stem-BN', 'stem-LN', 'stem-depth-BN', 'stem-depth-LN']
 
-        if patch_size == 16:
-            # split image into non-overlapping patches
-            self.patch_embed = PatchEmbed(
-                img_size=img_size,
-                kernel_size=16,
-                stride=16,
-                padding=0,
-                in_chans=in_chans, embed_dim=embed_dim,
-                norm_layer=norm_layer if self.patch_norm else None)
+        if patch_embed_type == 'simple':
+            if patch_size == 16:
+                # split image into non-overlapping patches
+                self.patch_embed = PatchEmbed(
+                    img_size=img_size,
+                    kernel_size=16,
+                    stride=16,
+                    padding=0,
+                    in_chans=in_chans, embed_dim=embed_dim,
+                    norm_layer=norm_layer if self.patch_norm else None)
+            else:
+                self.patch_embed = PatchEmbed(
+                    img_size=img_size, in_chans=in_chans, embed_dim=embed_dim,
+                    norm_layer=norm_layer if self.patch_norm else None)
         else:
-            self.patch_embed = PatchEmbed(
-                img_size=img_size, in_chans=in_chans, embed_dim=embed_dim,
-                norm_layer=norm_layer if self.patch_norm else None)
+            self.patch_embed = DeepPatchEmbed(
+                img_size=img_size, total_stride=patch_size, embed_dim=embed_dim,
+                depthwise='depth' in patch_embed_type,
+                norm_type=patch_embed_type[-2:])
         num_patches = self.patch_embed.num_patches
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution

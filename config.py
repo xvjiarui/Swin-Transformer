@@ -34,6 +34,8 @@ _C.DATA.ZIP_MODE = False
 # Use WebDataset instead of folder dataset
 # could be overwritten by command line argument
 _C.DATA.WEB_MODE = False
+# Thomas said it should be at least about 5-10x your batch size; beyond that,
+# the differences become academic.
 _C.DATA.SHUFFLE_BUFFER = 10000
 # Cache Data in Memory, could be overwritten by command line argument
 _C.DATA.CACHE_MODE = 'part'
@@ -168,6 +170,7 @@ _C.MODEL.CMVIT.WITH_PEG = [0, 0, 0, 0]
 _C.MODEL.CMVIT.POS_EMBED_TYPE = 'simple'
 _C.MODEL.CMVIT.CLUSTER_MLP_TYPE = []
 _C.MODEL.CMVIT.CLUSTER_TOKEN_WD = False
+_C.MODEL.CMVIT.PATCH_EMBED_TYPE = 'simple'
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()
