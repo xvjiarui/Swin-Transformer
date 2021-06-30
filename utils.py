@@ -44,7 +44,7 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
     return max_accuracy
 
 
-def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, logger):
+def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, logger, suffix=''):
     save_state = {'model': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'lr_scheduler': lr_scheduler.state_dict(),
@@ -54,14 +54,18 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
     if config.AMP_OPT_LEVEL != "O0":
         save_state['amp'] = amp.state_dict()
 
-    save_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch}.pth')
+    if len(suffix) > 0 and not suffix.startswith('_'):
+        suffix = '_' + suffix
+    filename = f'ckpt_epoch_{epoch}{suffix}.pth'
+
+    save_path = os.path.join(config.OUTPUT, filename)
     logger.info(f"{save_path} saving......")
     torch.save(save_state, save_path)
     logger.info(f"{save_path} saved !!!")
     if config.MAX_KEPT_CKPT > 0:
         if epoch > config.MAX_KEPT_CKPT:
             logger.info(f"Epoch: {epoch}, greater than config.MAX_KEPT_CKPT: {config.MAX_KEPT_CKPT}")
-            old_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch - config.MAX_KEPT_CKPT}.pth')
+            old_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch - config.MAX_KEPT_CKPT}{suffix}.pth')
             if os.path.exists(old_path) :
                 logger.info(f"old checkpoint path {old_path} exits")
                 os.remove(old_path)
