@@ -838,7 +838,7 @@ class DeepPatchEmbed(nn.Module):
                 out_channels *= 2
         stem.append(nn.Conv2d(
             in_channels=out_channels,
-            out_channels=out_channels,
+            out_channels=embed_dim,
             kernel_size=(1, 1),
             stride=(1, 1),
             padding=(0, 0),
