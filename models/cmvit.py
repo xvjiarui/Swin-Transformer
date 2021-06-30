@@ -146,9 +146,10 @@ def hard_softmax_sample(attn, dim):
     return ret
 
 def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim: int = -1) -> torch.Tensor:
-    _gumbels = (
-        -torch.empty_like(logits, memory_format=torch.legacy_contiguous_format).exponential_().log()
-    )  # ~Gumbel(0,1)
+    # _gumbels = (
+    #     -torch.empty_like(logits, memory_format=torch.legacy_contiguous_format).exponential_().log()
+    # )  # ~Gumbel(0,1)
+    # more stable https://github.com/pytorch/pytorch/issues/41663
     gumbel_dist = torch.distributions.gumbel.Gumbel(
         torch.tensor(0., device=logits.device, dtype=logits.dtype),
         torch.tensor(1., device=logits.device, dtype=logits.dtype))
@@ -196,7 +197,8 @@ class AssignAttention(nn.Module):
         else:
             attn_dim = -1
         if self.gumbel and self.training:
-            attn = F.gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
+            # attn = F.gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
+            attn = gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
         elif self.categorical and self.training:
             attn = hard_softmax_sample(attn, dim=attn_dim)
         else:
