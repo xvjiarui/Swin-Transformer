@@ -824,7 +824,7 @@ class DeepPatchEmbed(nn.Module):
                 kernel_size=(3, 3),
                 stride=(2, 2),
                 padding=(1, 1),
-                groups=prev_out_channels if depthwise else 1,
+                groups=prev_out_channels if depthwise and i > 0 else 1,
                 bias=False))
             if norm_type == 'BN':
                 stem.append(nn.BatchNorm2d(out_channels))
