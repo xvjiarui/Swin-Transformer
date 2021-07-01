@@ -66,14 +66,15 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
         if epoch >= config.MAX_KEPT_CKPT:
             logger.info(f"Epoch: {epoch}, greater than config.MAX_KEPT_CKPT: {config.MAX_KEPT_CKPT}")
             end_clean_epoch = epoch - config.MAX_KEPT_CKPT
+            old_path_list = []
             for cur_clean_epoch in range(end_clean_epoch+1):
                 old_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{cur_clean_epoch}{suffix}.pth')
                 if os.path.exists(old_path) :
                     logger.info(f"old checkpoint path {old_path} exits")
-                    os.remove(old_path)
-                    logger.info(f"old checkpoint path {old_path} removed!!!")
-                else:
-                    logger.info(f"old checkpoint path {old_path} does not exits!!!")
+                    old_path_list.append(old_path_list)
+            for old_path in old_path_list[:-config.MAX_KEPT_CKPT]:
+                os.remove(old_path)
+                logger.info(f"old checkpoint path {old_path} removed!!!")
 
 
 def get_grad_norm(parameters, norm_type=2):
