@@ -522,7 +522,7 @@ class BasicLayer(nn.Module):
                  norm_layer=nn.LayerNorm, downsample=None,
                  use_checkpoint=False, with_cls_token=True,
                  with_i2c_mlp=False, with_c2c_mlp=False, with_cluster_attn=True,
-                 decouple_cluster_attn=False):
+                 decouple_cluster_attn=False, i2c_mlp_ratio=4.):
 
         super().__init__()
         self.dim = dim
@@ -546,7 +546,7 @@ class BasicLayer(nn.Module):
             i2c_attn_blocks.append(
                 CrossAttnBlock(
                     dim=dim, num_heads=num_heads,
-                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                    mlp_ratio=i2c_mlp_ratio, qkv_bias=qkv_bias,
                     qk_scale=qk_scale, drop=drop,
                     attn_drop=attn_drop,
                     drop_path=drop_path[blk_idx],
@@ -953,7 +953,8 @@ class CMViT(nn.Module):
                  pos_embed_type='simple',
                  cluster_mlp_type=[],
                  cluster_token_wd=False,
-                 patch_embed_type='simple'):
+                 patch_embed_type='simple',
+                 i2c_mlp_ratio=4.):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1091,7 +1092,8 @@ class CMViT(nn.Module):
                                    with_cluster_attn=with_cluster_attn,
                                    decouple_cluster_attn=decouple_cluster_attn,
                                    with_i2c_mlp='i2c' in cluster_mlp_type,
-                                   with_c2c_mlp='c2c' in cluster_mlp_type)
+                                   with_c2c_mlp='c2c' in cluster_mlp_type,
+                                   i2c_mlp_ratio=i2c_mlp_ratio)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
