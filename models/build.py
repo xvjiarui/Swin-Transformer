@@ -47,7 +47,8 @@ def build_model(config):
                                   patch_norm=config.MODEL.VIT.PATCH_NORM,
                                   use_checkpoint=config.TRAIN.USE_CHECKPOINT,
                                   with_gap=config.MODEL.VIT.WITH_GAP,
-                                  with_peg=config.MODEL.VIT.WITH_PEG)
+                                  with_peg=config.MODEL.VIT.WITH_PEG,
+                                  patch_embed_type=config.MODEL.VIT.PATCH_EMBED_TYPE)
     elif model_type == 'mvit':
         model = MViT(img_size=config.DATA.IMG_SIZE,
                      in_chans=config.MODEL.MVIT.IN_CHANS,

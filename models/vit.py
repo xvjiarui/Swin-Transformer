@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from functools import partial
+import numpy as np
+from einops.layers.torch import Rearrange
 
 from timm.models.layers import trunc_normal_, drop_path, to_2tuple
 
@@ -139,6 +141,66 @@ class PatchEmbed(nn.Module):
             x = self.norm(x)
         return x, hw_shape
 
+class DeepPatchEmbed(nn.Module):
+    """ Deep stem from https://arxiv.org/pdf/2106.14881.pdf
+    """
+
+    def __init__(self, img_size=224, total_stride=16,
+                 in_chans=3, embed_dim=768, norm_type='BN', depthwise=True):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        self.img_size = img_size
+        self.patches_resolution = (img_size[1]//total_stride, img_size[0]//total_stride)
+        assert norm_type in ['LN', 'BN']
+
+        num_convs = int(np.log2(total_stride))
+        stem = []
+        prev_out_channels = in_chans
+        out_channels = embed_dim // 2**(num_convs -1)
+        for i in range(num_convs):
+            stem.append(nn.Conv2d(
+                in_channels=prev_out_channels,
+                out_channels=out_channels,
+                kernel_size=(3, 3),
+                stride=(2, 2),
+                padding=(1, 1),
+                groups=prev_out_channels if depthwise and i > 0 else 1,
+                bias=False))
+            if norm_type == 'BN':
+                stem.append(nn.BatchNorm2d(out_channels))
+            else:
+                stem.extend([Rearrange('b c h w -> b h w c'),
+                             nn.LayerNorm(out_channels),
+                             Rearrange('b h w c -> b c h w')])
+            stem.append(nn.ReLU(inplace=True))
+            prev_out_channels = out_channels
+            if i < num_convs -1:
+                out_channels *= 2
+        stem.append(nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=embed_dim,
+            kernel_size=(1, 1),
+            stride=(1, 1),
+            padding=(0, 0),
+            bias=True))
+        self.stem = nn.Sequential(*stem)
+
+    @property
+    def num_patches(self):
+        return self.patches_resolution[1] * self.patches_resolution[0]
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        if self.training:
+            # FIXME look at relaxing size constraints
+            assert H == self.img_size[0] and W == self.img_size[1], \
+                f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        x = self.stem(x)
+        hw_shape = x.shape[2:]
+        x = x.flatten(2).transpose(1, 2)
+        return x, hw_shape
+
+
 class PEG(nn.Module):
     def __init__(self, dim, out_dim, k=(3, 3), with_gap=True):
         super(PEG, self).__init__()
@@ -179,7 +241,8 @@ class VisionTransformer(nn.Module):
                  use_checkpoint=False,
                  patch_norm=True,
                  with_gap=False,
-                 with_peg=False):
+                 with_peg=False,
+                 patch_embed_type='simple'):
         super().__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -189,10 +252,18 @@ class VisionTransformer(nn.Module):
         self.drop_path_rate = drop_path_rate
         self.use_checkpoint = use_checkpoint
         self.with_peg = with_peg
+        assert patch_embed_type in ['simple', 'stem-BN', 'stem-LN', 'stem-depth-BN', 'stem-depth-LN']
 
-        self.patch_embed = PatchEmbed(
-            img_size=img_size, patch_size=patch_size, in_chans=in_chans,
-            embed_dim=embed_dim, norm_layer=norm_layer if patch_norm else None)
+        if patch_embed_type == 'simple':
+            self.patch_embed = PatchEmbed(
+                img_size=img_size, patch_size=patch_size, in_chans=in_chans,
+                embed_dim=embed_dim, norm_layer=norm_layer if patch_norm else None)
+        else:
+            self.patch_embed = DeepPatchEmbed(
+                img_size=img_size, total_stride=patch_size, embed_dim=embed_dim,
+                depthwise='depth' in patch_embed_type,
+                norm_type=patch_embed_type[-2:])
+
         num_patches = self.patch_embed.num_patches
 
         if self.with_gap:
