@@ -71,7 +71,7 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
                 old_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{cur_clean_epoch}{suffix}.pth')
                 if os.path.exists(old_path) :
                     logger.info(f"old checkpoint path {old_path} exits")
-                    old_path_list.append(old_path_list)
+                    old_path_list.append(old_path)
             for old_path in old_path_list[:-config.MAX_KEPT_CKPT]:
                 os.remove(old_path)
                 logger.info(f"old checkpoint path {old_path} removed!!!")
