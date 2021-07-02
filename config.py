@@ -63,6 +63,12 @@ _C.MODEL.DROP_PATH_RATE = 0.1
 # Label Smoothing
 _C.MODEL.LABEL_SMOOTHING = 0.1
 
+# self distillation
+# use distillation if alpha is greater than 0
+_C.MODEL.SELF_DIST_ALPHA = 0.
+_C.MODEL.SELF_DIST_TYPE = 'soft'
+_C.MODEL.SELF_DIST_TAU = 1.
+
 # Swin Transformer parameters
 _C.MODEL.SWIN = CN()
 _C.MODEL.SWIN.PATCH_SIZE = 4
@@ -172,6 +178,9 @@ _C.MODEL.CMVIT.CLUSTER_MLP_TYPE = []
 _C.MODEL.CMVIT.CLUSTER_TOKEN_WD = False
 _C.MODEL.CMVIT.PATCH_EMBED_TYPE = 'simple'
 _C.MODEL.CMVIT.I2C_MLP_RATIO = 4.
+_C.MODEL.CMVIT.CLUSTER_HEAD_TYPE = 'none'
+_C.MODEL.CMVIT.WITH_CLUSTER_PROJ = False
+_C.MODEL.CMVIT.WITH_CLUSTER_NORM = False
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()

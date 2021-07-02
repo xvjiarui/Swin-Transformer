@@ -522,7 +522,8 @@ class BasicLayer(nn.Module):
                  norm_layer=nn.LayerNorm, downsample=None,
                  use_checkpoint=False, with_cls_token=True,
                  with_i2c_mlp=False, with_c2c_mlp=False, with_cluster_attn=True,
-                 decouple_cluster_attn=False, i2c_mlp_ratio=4.):
+                 decouple_cluster_attn=False, i2c_mlp_ratio=4., cluster_proj=None,
+                 with_cluster_norm=False):
 
         super().__init__()
         self.dim = dim
@@ -537,6 +538,10 @@ class BasicLayer(nn.Module):
         self.with_i2c_mlp = with_i2c_mlp
         self.with_cluster_attn = with_cluster_attn
         self.decouple_cluster_attn = decouple_cluster_attn
+        if with_cluster_norm:
+            self.norm_cluster = norm_layer(dim)
+        else:
+            self.norm_cluster = nn.Identity()
 
         # build blocks
         self.depth = depth
@@ -586,8 +591,7 @@ class BasicLayer(nn.Module):
         self.input_resolution = input_resolution
         self.use_checkpoint = use_checkpoint
 
-        # patch merging layer
-        self.downsample = downsample
+        self.cluster_proj = cluster_proj
 
     def extra_repr(self) -> str:
         return f"dim={self.dim}, \n" \
@@ -597,8 +601,19 @@ class BasicLayer(nn.Module):
                f"with_cluster_attn={self.with_cluster_attn}, \n" \
                f"decouple_cluster_attn={self.decouple_cluster_attn}"
 
-    def forward(self, x):
+    def forward(self, x, prev_cluster_token=None):
+        """
+        Args:
+            x (torch.Tensor): image tokens, [B, L, C]
+            prev_cluster_token (torch.Tensor): cluster tokens, [B, S_1, C]
+        """
         cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
+        if self.cluster_proj is not None:
+            # [B, S_2, S_1]
+            inter_weight = self.cluster_proj(prev_cluster_token).transpose(1, 2).softmax(dim=-1)
+            cluster_token = cluster_token + inter_weight @ prev_cluster_token
+
+        cluster_token = self.norm_cluster(cluster_token)
 
         B, L, C = x.shape
         for blk_idx in range(self.depth):
@@ -629,7 +644,7 @@ class BasicLayer(nn.Module):
             else:
                 x, hw_shape = self.downsample(x)
 
-        return x
+        return x, cluster_token
 
 
 class BasicWinLayer(nn.Module):
@@ -954,7 +969,10 @@ class CMViT(nn.Module):
                  cluster_mlp_type=[],
                  cluster_token_wd=False,
                  patch_embed_type='simple',
-                 i2c_mlp_ratio=4.):
+                 i2c_mlp_ratio=4.,
+                 cluster_head_type='none',
+                 with_cluster_proj=False,
+                 with_cluster_norm=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -982,6 +1000,8 @@ class CMViT(nn.Module):
         assert len(set(cluster_mlp_type) - {'i2c', 'c2c'}) == 0
         self.cluster_token_wd = cluster_token_wd
         assert patch_embed_type in ['simple', 'stem-BN', 'stem-LN', 'stem-depth-BN', 'stem-depth-LN']
+        assert cluster_head_type in ['none', 'sum', 'dist']
+        self.cluster_head_type = cluster_head_type
 
         if patch_embed_type == 'simple':
             if patch_size == 16:
@@ -1074,6 +1094,10 @@ class CMViT(nn.Module):
                                       use_checkpoint=use_checkpoint,
                                       with_cls_token=self.with_cls_token)
             else:
+                if i_layer > 0 and with_cluster_proj:
+                    cluster_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])
+                else:
+                    cluster_proj = None
                 layer = BasicLayer(dim=dim,
                                    input_resolution=hw_shape,
                                    depth=depths[i_layer],
@@ -1093,15 +1117,25 @@ class CMViT(nn.Module):
                                    decouple_cluster_attn=decouple_cluster_attn,
                                    with_i2c_mlp='i2c' in cluster_mlp_type,
                                    with_c2c_mlp='c2c' in cluster_mlp_type,
-                                   i2c_mlp_ratio=i2c_mlp_ratio)
+                                   i2c_mlp_ratio=i2c_mlp_ratio,
+                                   cluster_proj=cluster_proj,
+                                   with_cluster_norm=with_cluster_norm)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
         self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
+        if self.with_cluster_head:
+            self.norm_cluster = norm_layer(self.num_features)
+            self.head_cluster = nn.Linear(self.num_features, num_classes)
+
         if self.with_cls_token:
             trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
+
+    @property
+    def with_cluster_head(self):
+        return self.cluster_head_type != 'none'
 
     @property
     def with_cls_token(self):
@@ -1144,8 +1178,9 @@ class CMViT(nn.Module):
         x = x + self.get_pos_embed(B, *hw_shape)
         x = self.pos_drop(x)
 
+        cluster_token = None
         for layer in self.layers:
-            x = layer(x)
+            x, cluster_token = layer(x, cluster_token)
 
         # [B, L, C]
         x = self.norm(x)
@@ -1154,12 +1189,33 @@ class CMViT(nn.Module):
             x = torch.flatten(x, 1)
         else:
             x = x[:, 0]
-        return x
+
+        if self.with_cluster_head:
+            cluster_token = self.norm_cluster(cluster_token)
+            cluster_token = self.avgpool(cluster_token.transpose(1, 2))  # B C 1
+            cluster_token = torch.flatten(cluster_token, 1)
+            return x, cluster_token
+        else:
+            return x
 
     def forward(self, x):
-        x = self.forward_features(x)
-        x = self.head(x)
-        return x
+        if self.with_cluster_head:
+            x, cluster_token = self.forward_features(x)
+            x = self.head(x)
+            cluster_token = self.head_cluster(cluster_token)
+            if not self.training:
+                return (x + cluster_token) / 2
+            if self.cluster_head_type == 'sum':
+                return (x + cluster_token)/2
+                # return x + cluster_token
+            elif self.cluster_head_type == 'dist':
+                return x, cluster_token
+            else:
+                raise ValueError
+        else:
+            x = self.forward_features(x)
+            x = self.head(x)
+            return x
 
 class RecurrentBasicLayer(nn.Module):
     """ A basic Transformer layer for one stage.

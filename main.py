@@ -27,6 +27,7 @@ from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
 from env import collect_env, get_git_hash
+from losses import DistillationLoss
 
 try:
     # noinspection PyUnresolvedReferences
@@ -113,6 +114,12 @@ def main(config):
         criterion = LabelSmoothingCrossEntropy(smoothing=config.MODEL.LABEL_SMOOTHING)
     else:
         criterion = torch.nn.CrossEntropyLoss()
+
+    if config.MODEL.SELF_DIST_ALPHA > 0:
+        criterion = DistillationLoss(criterion,
+                                     distillation_type=config.MODEL.SELF_DIST_TYPE,
+                                     alpha=config.MODEL.SELF_DIST_ALPHA,
+                                     tau=config.MODEL.SELF_DIST_TAU)
 
     max_accuracy = 0.0
 
