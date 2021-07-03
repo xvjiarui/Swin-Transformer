@@ -528,7 +528,8 @@ class BasicLayer(nn.Module):
                  with_i2c_mlp=False, with_c2c_mlp=False, with_cluster_attn=True,
                  decouple_cluster_attn=False, i2c_mlp_ratio=4., cluster_proj=None,
                  with_cluster_norm=False,
-                 with_cluster_attn_skip=True):
+                 with_cluster_attn_skip=True,
+                 zero_init_cluster_token=False):
 
         super().__init__()
         self.dim = dim
@@ -537,7 +538,8 @@ class BasicLayer(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.num_cluster = num_cluster
         self.cluster_token = nn.Parameter(torch.zeros(1, num_cluster, dim))
-        trunc_normal_(self.cluster_token, std=.02)
+        if not zero_init_cluster_token:
+            trunc_normal_(self.cluster_token, std=.02)
         self.with_cls_token = with_cls_token
         self.with_peg = with_peg
         self.with_i2c_mlp = with_i2c_mlp
@@ -979,7 +981,8 @@ class CMViT(nn.Module):
                  cluster_head_type='none',
                  with_cluster_proj=False,
                  with_cluster_norm=False,
-                 with_cluster_attn_skip=True):
+                 with_cluster_attn_skip=True,
+                 zero_init_cluster_token=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1127,7 +1130,8 @@ class CMViT(nn.Module):
                                    i2c_mlp_ratio=i2c_mlp_ratio,
                                    cluster_proj=cluster_proj,
                                    with_cluster_norm=with_cluster_norm,
-                                   with_cluster_attn_skip=with_cluster_attn_skip)
+                                   with_cluster_attn_skip=with_cluster_attn_skip,
+                                   zero_init_cluster_token=zero_init_cluster_token)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
