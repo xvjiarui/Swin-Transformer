@@ -115,3 +115,10 @@
 #cmvit-v-stemBN_i2c-d4_a8_wcn_proj_lin_soft_ch-dist_patch16_224.yaml
 #cmvit-v-stemBN_i2c-d4_a8_wcn_proj_lin_soft_ch-sum_patch16_224.yaml
 #cmvit-v-stemBN_i2c-d4_a8_wcn_proj_lin_soft_patch16_224.yaml
+#vit_base-stemBN_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_ncas_proj_lin_ch-sum_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_ncas_proj_lin_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_ncas_proj_lin_soft_ch-sum_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_ncas_proj_lin_soft_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_ncas_patch16_224.yaml
+cmvit-v-stemBN_ncas_patch16_224.yaml

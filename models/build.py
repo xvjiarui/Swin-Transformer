@@ -99,7 +99,8 @@ def build_model(config):
                       i2c_mlp_ratio=config.MODEL.CMVIT.I2C_MLP_RATIO,
                       cluster_head_type=config.MODEL.CMVIT.CLUSTER_HEAD_TYPE,
                       with_cluster_proj=config.MODEL.CMVIT.WITH_CLUSTER_PROJ,
-                      with_cluster_norm=config.MODEL.CMVIT.WITH_CLUSTER_NORM)
+                      with_cluster_norm=config.MODEL.CMVIT.WITH_CLUSTER_NORM,
+                      with_cluster_attn_skip=config.MODEL.CMVIT.WITH_CLUSTER_ATTN_SKIP)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

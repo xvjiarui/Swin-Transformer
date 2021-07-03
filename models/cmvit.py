@@ -425,7 +425,7 @@ class CrossAttnBlock(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False,
                  qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-                 out_dim=None, with_mlp=True):
+                 out_dim=None, with_mlp=True, with_attn_skip=True):
         super().__init__()
         self.norm_q = norm_layer(dim)
         self.norm_k = norm_layer(dim)
@@ -435,6 +435,7 @@ class CrossAttnBlock(nn.Module):
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path_prob = drop_path
         self.with_mlp = with_mlp
+        self.with_attn_skip = with_attn_skip
         if self.with_mlp:
             self.norm2 = norm_layer(dim)
             mlp_hidden_dim = int(dim * mlp_ratio)
@@ -457,7 +458,10 @@ class CrossAttnBlock(nn.Module):
     def forward(self, query, key, *, drop_prob=None):
         x = query
         out = self.attn(self.norm_q(query), key=self.norm_k(key))
-        x = x + self.drop_path(out, drop_prob=drop_prob)
+        if self.with_attn_skip:
+            x = x + self.drop_path(out, drop_prob=drop_prob)
+        else:
+            x = out
         if self.with_mlp:
             x = self.reduction(x) + self.drop_path(self.mlp(self.norm2(x)), drop_prob=drop_prob)
         return x
@@ -523,7 +527,8 @@ class BasicLayer(nn.Module):
                  use_checkpoint=False, with_cls_token=True,
                  with_i2c_mlp=False, with_c2c_mlp=False, with_cluster_attn=True,
                  decouple_cluster_attn=False, i2c_mlp_ratio=4., cluster_proj=None,
-                 with_cluster_norm=False):
+                 with_cluster_norm=False,
+                 with_cluster_attn_skip=True):
 
         super().__init__()
         self.dim = dim
@@ -556,7 +561,8 @@ class BasicLayer(nn.Module):
                     attn_drop=attn_drop,
                     drop_path=drop_path[blk_idx],
                     norm_layer=norm_layer,
-                    with_mlp=with_i2c_mlp))
+                    with_mlp=with_i2c_mlp,
+                    with_attn_skip=with_cluster_attn_skip))
             c2i_attn_blocks.append(
                 CrossAttnBlock(
                     dim=dim, num_heads=num_heads,
@@ -972,7 +978,8 @@ class CMViT(nn.Module):
                  i2c_mlp_ratio=4.,
                  cluster_head_type='none',
                  with_cluster_proj=False,
-                 with_cluster_norm=False):
+                 with_cluster_norm=False,
+                 with_cluster_attn_skip=True):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1119,7 +1126,8 @@ class CMViT(nn.Module):
                                    with_c2c_mlp='c2c' in cluster_mlp_type,
                                    i2c_mlp_ratio=i2c_mlp_ratio,
                                    cluster_proj=cluster_proj,
-                                   with_cluster_norm=with_cluster_norm)
+                                   with_cluster_norm=with_cluster_norm,
+                                   with_cluster_attn_skip=with_cluster_attn_skip)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
