@@ -533,7 +533,8 @@ class BasicLayer(nn.Module):
                  decouple_cluster_attn=False, i2c_mlp_ratio=4., cluster_proj=None,
                  with_cluster_norm=False,
                  with_cluster_attn_skip=True,
-                 zero_init_cluster_token=False):
+                 zero_init_cluster_token=False,
+                 with_cluster_l2_norm=False):
 
         super().__init__()
         self.dim = dim
@@ -553,6 +554,7 @@ class BasicLayer(nn.Module):
             self.norm_cluster = norm_layer(dim)
         else:
             self.norm_cluster = nn.Identity()
+        self.with_cluster_l2_norm = with_cluster_l2_norm
 
         # build blocks
         self.depth = depth
@@ -611,7 +613,8 @@ class BasicLayer(nn.Module):
                f"depth={self.depth}, \n" \
                f"num_cluster={self.num_cluster}, \n" \
                f"with_cluster_attn={self.with_cluster_attn}, \n" \
-               f"decouple_cluster_attn={self.decouple_cluster_attn}"
+               f"decouple_cluster_attn={self.decouple_cluster_attn}, \n" \
+               f"with_cluster_l2_norm={self.with_cluster_l2_norm}"
 
     def forward(self, x, prev_cluster_token=None):
         """
@@ -636,16 +639,24 @@ class BasicLayer(nn.Module):
             else:
                 i2c_key = x
             if self.use_checkpoint:
+                if self.with_cluster_l2_norm:
+                    cluster_token = F.normalize(cluster_token, p=2, dim=-1)
                 cluster_token = checkpoint.checkpoint(i2c_blk, cluster_token, i2c_key)
                 if self.decouple_cluster_attn:
                     c2c_blk = self.c2c_attn_blocks[blk_idx]
                     cluster_token = checkpoint.checkpoint(c2c_blk, cluster_token, cluster_token)
+                if self.with_cluster_l2_norm:
+                    cluster_token = F.normalize(cluster_token, p=2, dim=-1)
                 x = checkpoint.checkpoint(c2i_blk, x, cluster_token)
             else:
+                if self.with_cluster_l2_norm:
+                    cluster_token = F.normalize(cluster_token, p=2, dim=-1)
                 cluster_token= i2c_blk(cluster_token, i2c_key)
                 if self.decouple_cluster_attn:
                     c2c_blk = self.c2c_attn_blocks[blk_idx]
                     cluster_token = c2c_blk(cluster_token, cluster_token)
+                if self.with_cluster_l2_norm:
+                    cluster_token = F.normalize(cluster_token, p=2, dim=-1)
                 x = c2i_blk(x, cluster_token)
             if self.with_peg:
                 x = self.pegs[blk_idx](x, self.input_resolution)
@@ -987,7 +998,8 @@ class CMViT(nn.Module):
                  with_cluster_norm=False,
                  with_cluster_attn_skip=True,
                  zero_init_cluster_token=False,
-                 gumbel_tau=1.):
+                 gumbel_tau=1.,
+                 with_cluster_l2_norm=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1137,7 +1149,8 @@ class CMViT(nn.Module):
                                    cluster_proj=cluster_proj,
                                    with_cluster_norm=with_cluster_norm,
                                    with_cluster_attn_skip=with_cluster_attn_skip,
-                                   zero_init_cluster_token=zero_init_cluster_token)
+                                   zero_init_cluster_token=zero_init_cluster_token,
+                                   with_cluster_l2_norm=with_cluster_l2_norm)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
