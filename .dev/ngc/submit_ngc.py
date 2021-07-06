@@ -191,9 +191,13 @@ def main():
                 name_mappings[osp.basename(cfg)] = cfg
                 # if osp.basename(cfg) in submit_cfg_names:
                 #     submit(osp.join(args.config, cfg), args, rest)
+            success_submits = []
             for base_cfg in submit_cfg_names:
                 if base_cfg in name_mappings:
                     submit(osp.join(args.config, name_mappings[base_cfg]), args, rest)
+                    success_submits.append(base_cfg)
+            for base_cfg in success_submits:
+                print(f'{base_cfg} submitted')
         else:
             for cfg in scandir(args.config, suffix=".yaml"):
                 if "playground" in cfg:

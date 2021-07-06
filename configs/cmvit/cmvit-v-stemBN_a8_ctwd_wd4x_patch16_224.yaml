@@ -1,0 +1,35 @@
+# cmvit-s: DEPTHS=[2, 2, 6, 2]
+# cmvit-m: DEPTHS=[1, 1, 10, 1]
+# cmvit-v: DEPTHS=[12] or [6,6], DROP_PATH_RATE=0. be default.
+# cmvit-base: EMBED_DIM=768, PATCH_SIZE=16, DEPTH=[12], NUM_CLUSTERS=[64]
+# c1: NUM_CLUSTERS=[64, 32, 16, 8]
+# cN: NUM_CLUSTERS=[64n, 32n, 16n, 8n]
+# ppp: POOL_STAGES=[0, 1, 2]
+# ppaX: POOL_STAGES=[0, 1], NUM_ASSIGN=[..., ..., X]
+# wca: WITH_CLUSTER_ATTN=true
+
+MODEL:
+  TYPE: cmvit
+  DROP_PATH_RATE: 0.
+  CMVIT:
+    EMBED_DIM: 768
+    EMBED_FACTORS: [1, 1]
+    PATCH_SIZE: 16
+    DEPTHS: [6, 6]
+#    DEPTHS: [2, 2, 6, 2]
+#    NUM_CLUSTERS: [512, 256, 128, 1]
+    NUM_CLUSTERS: [64, 8]
+    WITH_CLUSTER_ATTN: false
+    POOL_STAGES: []
+    POOL_MODE: unfold
+    WITH_GAP: true
+    NUM_ASSIGN: [8]
+    INTER_MODE: attn
+    #    WITH_MLP_INTER: true
+    ASSIGN_TYPE: ['gumbel', 'hard', 'inv'] # norm w.o. skip: 10, norm w. skip: 10
+#    ASSIGN_TYPE: ['hard', 'inv'] # norm w.o skip: 5k, norm w. skip: 10
+#    ASSIGN_TYPE: ['inv'] # norm w.o skip: 10, norm w. skip: 10
+    CLUSTER_TOKEN_WD: true
+    PATCH_EMBED_TYPE: stem-BN
+TRAIN:
+  WEIGHT_DECAY: 0.2

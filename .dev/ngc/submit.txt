@@ -190,7 +190,13 @@
 #cmvit-v-stemBN_i2c-d4_a8_lin_no-gumbel_soft_l2_clip1_patch16_224.yaml
 #mvit_k1_patch16_224.yaml
 #mvit_k1s1_patch16_224.yaml
-cmvit-v-stemBN_ctwd_wd4x_patch16_224.yaml
-cmvit-v-stemBN_i2c-d4_a8_lin_ctwd_wd4x_patch16_224.yaml
-cmvit-v-stemBN_i2c-d4_a8_lin_no-gumbel_soft_ctwd_wd4x_patch16_224.yaml
-cmvit-v-stemBN_i2c-d4_ctwd_wd4x_patch16_224.yaml
+#cmvit-v-stemBN_ctwd_wd4x_patch16_224.yaml
+#cmvit-v-stemBN_i2c-d4_ctwd_wd4x_patch16_224.yaml
+#cmvit-v-stemBN_i2c-d4_a8_lin_ctwd_wd4x_patch16_224.yaml
+#cmvit-v-stemBN_i2c-d4_a8_lin_no-gumbel_soft_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_i2c-d4_a8_no-gumbel_soft_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_a8_lin_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_a8_lin_no-gumbel_soft_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_a8_ctwd_wd4x_patch16_224.yaml
+cmvit-v-stemBN_a8_no-gumbel_soft_ctwd_wd4x_patch16_224.yaml
