@@ -62,7 +62,9 @@ def build_model(config):
                      drop_rate=config.MODEL.DROP_RATE,
                      drop_path_rate=config.MODEL.DROP_PATH_RATE,
                      patch_norm=config.MODEL.MVIT.PATCH_NORM,
-                     use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+                     use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                     kq_kernel=config.MODEL.MVIT.KV_KERNEL,
+                     kq_stride=config.MODEL.MVIT.KV_STRIDE)
     elif model_type == 'cmvit':
         model = CMViT(img_size=config.DATA.IMG_SIZE,
                       patch_size=config.MODEL.CMVIT.PATCH_SIZE,

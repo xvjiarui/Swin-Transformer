@@ -453,7 +453,8 @@ class MViT(nn.Module):
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False,
-                 with_gap=False):
+                 with_gap=False,
+                 kq_stride=[8, 4, 2, 1], kq_kernel=[3, 3, 3, 1]):
         super().__init__()
 
         self.num_classes = num_classes
@@ -509,8 +510,8 @@ class MViT(nn.Module):
                                              norm_layer=norm_layer,
                                              kernel_q=to_2tuple(3),
                                              stride_q=to_2tuple(2),
-                                             kernel_kv=to_2tuple(3),
-                                             stride_kv=to_2tuple(2 ** (self.num_layers-2 - i_layer)),
+                                             kernel_kv=to_2tuple(kq_kernel[i_layer]),
+                                             stride_kv=to_2tuple(kq_stride[i_layer+1]),
                                              has_cls_embed=self.with_cls_token)
             else:
                 downsample = None
@@ -521,10 +522,9 @@ class MViT(nn.Module):
                                depth=depths[i_layer],
                                num_heads=dim // dim_per_head,
                                attn_stride=to_2tuple(
-                                   2 ** (self.num_layers - 1 - i_layer)),
+                                   kq_stride[i_layer]),
                                attn_kernel=to_2tuple(
-                                   3) if i_layer < self.num_layers - 1 else to_2tuple(
-                                   1),
+                                   kq_kernel[i_layer]),
                                mlp_ratio=self.mlp_ratio,
                                qkv_bias=qkv_bias, qk_scale=qk_scale,
                                drop=drop_rate, attn_drop=attn_drop_rate,

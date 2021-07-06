@@ -1,0 +1,7 @@
+MODEL:
+  TYPE: mvit
+  DROP_PATH_RATE: 0.2
+  MVIT:
+    EMBED_DIM: 96
+    DEPTHS: [1, 1, 10, 1]
+    KV_KERNEL: [1, 1, 1, 1]
