@@ -171,7 +171,7 @@ def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., hard=True, inv_attn=True,
-                 gumbel=False, categorical=False):
+                 gumbel=False, categorical=False, gumbel_tau=1.):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -190,6 +190,7 @@ class AssignAttention(nn.Module):
         self.categorical = categorical
         if categorical:
             assert hard
+        self.gumbel_tau = gumbel_tau
 
     def get_attn(self, attn):
         if self.inv_attn:
@@ -198,7 +199,8 @@ class AssignAttention(nn.Module):
             attn_dim = -1
         if self.gumbel and self.training:
             # attn = F.gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
-            attn = gumbel_softmax(attn, dim=attn_dim, hard=self.hard, tau=1)
+            attn = gumbel_softmax(attn, dim=attn_dim, hard=self.hard,
+                                  tau=self.gumbel_tau)
         elif self.categorical and self.training:
             attn = hard_softmax_sample(attn, dim=attn_dim)
         else:
@@ -251,7 +253,8 @@ class AssignAttention(nn.Module):
         return f'hard: {self.hard}, \n' \
                f'inv_attn: {self.inv_attn}, \n' \
                f'gumbel: {self.gumbel}, \n' \
-               f'categorical={self.categorical}'
+               f'categorical={self.categorical}, \n' \
+               f'gumbel_tau: {self.gumbel_tau}'
 
 class TokenAssign(nn.Module):
 
@@ -259,7 +262,7 @@ class TokenAssign(nn.Module):
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
                  categorical=False, inter_mode='attn', with_mlp_inter=False,
-                 assign_skip=True):
+                 assign_skip=True, gumbel_tau=1.):
         super(TokenAssign, self).__init__()
         self.hard = hard
         self.inv_attn = inv_attn
@@ -286,7 +289,8 @@ class TokenAssign(nn.Module):
         self.assign = AssignAttention(dim=dim, num_heads=num_heads,
                                       qkv_bias=True, hard=hard,
                                       inv_attn=inv_attn, gumbel=gumbel,
-                                      categorical=categorical)
+                                      categorical=categorical,
+                                      gumbel_tau=gumbel_tau)
         self.norm_new_x = norm_layer(dim)
         self.mlp_channels = Mlp(dim, channels_dim, out_dim)
         if out_dim is not None and dim != out_dim:
@@ -982,7 +986,8 @@ class CMViT(nn.Module):
                  with_cluster_proj=False,
                  with_cluster_norm=False,
                  with_cluster_attn_skip=True,
-                 zero_init_cluster_token=False):
+                 zero_init_cluster_token=False,
+                 gumbel_tau=1.):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1086,7 +1091,8 @@ class CMViT(nn.Module):
                                              inter_mode=inter_mode,
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
-                                             with_mlp_inter=with_mlp_inter)
+                                             with_mlp_inter=with_mlp_inter,
+                                             gumbel_tau=gumbel_tau)
             if num_anchors[i_layer] > 0:
                 layer = BasicWinLayer(dim=dim,
                                       input_resolution=hw_shape,
