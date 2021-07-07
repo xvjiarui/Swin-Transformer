@@ -27,7 +27,7 @@
 
 python .dev/ngc/submit_ngc.py configs \
   -f .dev/ngc/submit.txt ${@:1} \
-  --gpus 16 --mem 32 --data-type ngc --wandb --keep 1 --batch-size 128 --autocast --tag autocast
+  --gpus 16 --mem 32 --data-type ngc --wandb --keep 1 --batch-size 128 --amp-opt-level O0 --autocast --tag autocast
 
 #python .dev/ngc/submit_ngc.py configs \
 #  -f .dev/ngc/submit.txt ${@:1} \

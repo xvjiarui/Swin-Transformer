@@ -25,5 +25,5 @@ MODEL:
     WITH_GAP: true
     CLUSTER_TOKEN_WD: true
     PATCH_EMBED_TYPE: stem-BN
-  TRAIN:
-    CLIP_MODE: agc
+TRAIN:
+  CLIP_MODE: agc

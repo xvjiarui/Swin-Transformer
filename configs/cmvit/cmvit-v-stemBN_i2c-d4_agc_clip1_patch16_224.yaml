@@ -26,6 +26,6 @@ MODEL:
     CLUSTER_MLP_TYPE: [i2c]
     I2C_MLP_RATIO: 0.25
     PATCH_EMBED_TYPE: stem-BN
-  TRAIN:
-    CLIP_GRAD: 1.
-    CLIP_MODE: agc
+TRAIN:
+  CLIP_GRAD: 1.
+  CLIP_MODE: agc
