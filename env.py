@@ -7,6 +7,7 @@ import sys
 from collections import defaultdict
 
 import torch
+import ctypes
 
 
 def collect_env():
@@ -117,3 +118,12 @@ def get_git_hash(fallback='unknown', digits=None):
         sha = fallback
 
     return sha
+
+def increase_l2_cache():
+    _libcudart = ctypes.CDLL('libcudart.so')
+    # Set device limit on the current device
+    # cudaLimitMaxL2FetchGranularity = 0x05
+    pValue = ctypes.cast((ctypes.c_int * 1)(), ctypes.POINTER(ctypes.c_int))
+    _libcudart.cudaDeviceSetLimit(ctypes.c_int(0x05), ctypes.c_int(128))
+    _libcudart.cudaDeviceGetLimit(pValue, ctypes.c_int(0x05))
+    # assert pValue.contents.value == 128

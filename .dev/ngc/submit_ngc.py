@@ -129,8 +129,6 @@ def submit(config, args, rest):
     else:
         batch_size = 128
     py_args += f" --batch-size {batch_size}"
-    if args.wandb:
-        py_args += " --wandb "
     base_config = osp.splitext(osp.basename(config))[0]
     ngc_cmd_list = []
     git_clone_cmd = f'git clone -b {args.branch} https://github.com/xvjiarui/Swin-Transformer.git && cd Swin-Transformer'
@@ -138,7 +136,9 @@ def submit(config, args, rest):
     link_dirs_cmd = f'mkdir -p /work_dirs/swin && ln -s /work_dirs/swin output'
     ngc_cmd_list.append(link_dirs_cmd)
     if args.wandb:
-        ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
+        py_args += " --wandb "
+        # ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
+        ngc_cmd_list.append(f'pip install wandb')
 
     ngc_arg_dict['name'] = f'ml-model.vit-jx.{base_config}_bs{batch_size}x{args.gpus}'
     ngc_arg_dict['image'] = "nvcr.io/nvidian/lpr/swin:latest"

@@ -219,6 +219,8 @@ _C.TRAIN.WARMUP_LR = 5e-7
 _C.TRAIN.MIN_LR = 5e-6
 # Clip gradient norm
 _C.TRAIN.CLIP_GRAD = 5.0
+# Clip gradient mode, support norm, value, agc. Value/agc is only supported when AUTOCAST=True
+_C.TRAIN.CLIP_MODE = 'norm'
 # Auto resume from latest checkpoint
 _C.TRAIN.AUTO_RESUME = True
 # Gradient accumulation steps
@@ -286,6 +288,9 @@ _C.TEST.CROP = True
 # Mixed precision opt level, if O0, no amp is used ('O0', 'O1', 'O2')
 # overwritten by command line argument
 _C.AMP_OPT_LEVEL = ''
+# Native MixPrecision by PyTorch
+# overwritten by command line argument
+_C.AUTOCAST = False
 # Path to output folder, overwritten by command line argument
 _C.OUTPUT = ''
 # Tag of experiment, overwritten by command line argument
@@ -348,6 +353,8 @@ def update_config(config, args):
         config.TRAIN.USE_CHECKPOINT = True
     if args.amp_opt_level:
         config.AMP_OPT_LEVEL = args.amp_opt_level
+    if args.autocast:
+        config.AUTOCAST = True
     if args.output:
         config.OUTPUT = args.output
     if args.tag:

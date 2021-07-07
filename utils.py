@@ -17,7 +17,7 @@ except ImportError:
     amp = None
 
 
-def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
+def load_checkpoint(config, model, optimizer, lr_scheduler, loss_scaler, logger):
     logger.info(f"==============> Resuming form {config.MODEL.RESUME}....................")
     if config.MODEL.RESUME.startswith('https'):
         checkpoint = torch.hub.load_state_dict_from_url(
@@ -35,6 +35,8 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
         config.freeze()
         if 'amp' in checkpoint and config.AMP_OPT_LEVEL != "O0" and checkpoint['config'].AMP_OPT_LEVEL != "O0":
             amp.load_state_dict(checkpoint['amp'])
+        if loss_scaler is not None:
+            loss_scaler.load_state_dict(checkpoint['loss_scaler'])
         logger.info(f"=> loaded successfully '{config.MODEL.RESUME}' (epoch {checkpoint['epoch']})")
         if 'max_accuracy' in checkpoint:
             max_accuracy = checkpoint['max_accuracy']
@@ -44,13 +46,15 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
     return max_accuracy
 
 
-def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, logger, suffix=''):
+def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, loss_scaler, logger, suffix=''):
     save_state = {'model': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'lr_scheduler': lr_scheduler.state_dict(),
                   'max_accuracy': max_accuracy,
                   'epoch': epoch,
                   'config': config}
+    if loss_scaler is not None:
+        save_state['loss_scaler'] = loss_scaler.state_dict()
     if config.AMP_OPT_LEVEL != "O0":
         save_state['amp'] = amp.state_dict()
 

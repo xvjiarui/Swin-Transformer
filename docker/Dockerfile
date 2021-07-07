@@ -93,3 +93,8 @@ RUN pip install -e git://github.com/tmbdev/webdataset.git#egg=webdataset
 # Install Swin Dependences
 RUN pip install opencv-python==4.4.0.46 termcolor==1.1.0 yacs==0.1.8
 
+ENV WANDB_API_KEY=18a953cf069a567c46b1e613f940e6eb8f878c3d
+
+ENV BITBUCKET_PWD=FymbWdVYdSnV4augTHbX
+
+RUN pip install git+https://gitlab-master.nvidia.com/dl/gwe/gpu_affinity
