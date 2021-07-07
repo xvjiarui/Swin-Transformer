@@ -570,7 +570,7 @@ class BasicLayer(nn.Module):
                     drop_path=drop_path[blk_idx],
                     norm_layer=norm_layer,
                     with_mlp=with_i2c_mlp,
-                    with_attn_skip=with_cluster_attn_skip))
+                    with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
             c2i_attn_blocks.append(
                 CrossAttnBlock(
                     dim=dim, num_heads=num_heads,
