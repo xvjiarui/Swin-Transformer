@@ -83,12 +83,13 @@ class SpatialPool(nn.Module):
         norm_dim = dim
         if mode == 'conv' or mode == 'depth-conv':
             self.pool = nn.Conv2d(
-                    dim,
-                    dim,
-                    (2, 2),
-                    stride=(2, 2),
-                    groups=dim if mode == 'depth-conv' else 1,
-                    bias=False)
+                dim,
+                dim,
+                (3, 3),
+                stride=(2, 2),
+                padding=(1, 1),
+                groups=dim if mode == 'depth-conv' else 1,
+                bias=False)
         elif mode == 'max':
             self.pool = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
         elif mode == 'avg':
@@ -596,6 +597,7 @@ class BasicLayer(nn.Module):
                         with_mlp=with_i2c_mlp,
                         with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
             else:
+                assert not with_i2c_mlp
                 i2c_attn_blocks.append(
                     c2i_attn_blocks[-1].share_attn_wrapper(with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
         if decouple_cluster_attn:
