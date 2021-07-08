@@ -213,12 +213,6 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 outputs = model(samples)
                 loss = criterion(outputs, targets)
 
-            loss_value = loss.item()
-
-            if not math.isfinite(loss_value):
-                logger.info(f"Loss is {loss_value}, stopping training")
-                sys.exit(1)
-
             optimizer.zero_grad()
 
             # this attribute is added by timm on one optimizer (adahessian)
@@ -290,6 +284,12 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
                 f'mem {memory_used:.0f}MB')
+
+            loss_value = loss.item()
+            if dist.get_rank() == 0 and not math.isfinite(loss_value):
+                logger.info(f"Loss is {loss_value}, stopping training")
+                sys.exit(1)
+
     epoch_time = time.time() - start
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
     return loss_meter.avg
