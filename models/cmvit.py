@@ -459,6 +459,20 @@ class CrossAttnBlock(nn.Module):
             drop_prob = self.drop_path_prob
         return drop_path(x, drop_prob, self.training)
 
+    def share_attn_wrapper(self, with_attn_skip=True):
+
+        def forward_attn(query, key, *, drop_prob=None):
+            x = query
+            out = self.attn(self.norm_q(query), key=self.norm_k(key))
+            if with_attn_skip:
+                x = x + self.drop_path(out, drop_prob=drop_prob)
+            else:
+                x = out
+
+            return x
+
+        return forward_attn
+
     def forward(self, query, key, *, drop_prob=None):
         x = query
         out = self.attn(self.norm_q(query), key=self.norm_k(key))
@@ -534,7 +548,8 @@ class BasicLayer(nn.Module):
                  with_cluster_norm=False,
                  with_cluster_attn_skip=True,
                  zero_init_cluster_token=False,
-                 with_cluster_l2_norm=False):
+                 with_cluster_l2_norm=False,
+                 i2c_share_attn=False):
 
         super().__init__()
         self.dim = dim
@@ -561,16 +576,6 @@ class BasicLayer(nn.Module):
         i2c_attn_blocks = []
         c2i_attn_blocks = []
         for blk_idx in range(depth):
-            i2c_attn_blocks.append(
-                CrossAttnBlock(
-                    dim=dim, num_heads=num_heads,
-                    mlp_ratio=i2c_mlp_ratio, qkv_bias=qkv_bias,
-                    qk_scale=qk_scale, drop=drop,
-                    attn_drop=attn_drop,
-                    drop_path=drop_path[blk_idx],
-                    norm_layer=norm_layer,
-                    with_mlp=with_i2c_mlp,
-                    with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
             c2i_attn_blocks.append(
                 CrossAttnBlock(
                     dim=dim, num_heads=num_heads,
@@ -579,6 +584,20 @@ class BasicLayer(nn.Module):
                     attn_drop=attn_drop,
                     drop_path=drop_path[blk_idx],
                     norm_layer=norm_layer))
+            if not i2c_share_attn:
+                i2c_attn_blocks.append(
+                    CrossAttnBlock(
+                        dim=dim, num_heads=num_heads,
+                        mlp_ratio=i2c_mlp_ratio, qkv_bias=qkv_bias,
+                        qk_scale=qk_scale, drop=drop,
+                        attn_drop=attn_drop,
+                        drop_path=drop_path[blk_idx],
+                        norm_layer=norm_layer,
+                        with_mlp=with_i2c_mlp,
+                        with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
+            else:
+                i2c_attn_blocks.append(
+                    c2i_attn_blocks[-1].share_attn_wrapper(with_attn_skip=with_cluster_attn_skip if blk_idx == 0 else True))
         if decouple_cluster_attn:
             c2c_attn_blocks = []
             for blk_idx in range(depth):
@@ -593,8 +612,10 @@ class BasicLayer(nn.Module):
                         with_mlp=with_c2c_mlp))
             self.c2c_attn_blocks = nn.ModuleList(c2c_attn_blocks)
 
-        # self.coord_proj = Mlp(in_features=coord_dim, out_features=out_dim)
-        self.i2c_attn_blocks = nn.ModuleList(i2c_attn_blocks)
+        if not i2c_share_attn:
+            self.i2c_attn_blocks = nn.ModuleList(i2c_attn_blocks)
+        else:
+            self.i2c_attn_blocks = i2c_attn_blocks
         self.c2i_attn_blocks = nn.ModuleList(c2i_attn_blocks)
 
         if self.with_peg:
@@ -999,7 +1020,8 @@ class CMViT(nn.Module):
                  with_cluster_attn_skip=True,
                  zero_init_cluster_token=False,
                  gumbel_tau=1.,
-                 with_cluster_l2_norm=False):
+                 with_cluster_l2_norm=False,
+                 i2c_share_attn=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1150,7 +1172,8 @@ class CMViT(nn.Module):
                                    with_cluster_norm=with_cluster_norm,
                                    with_cluster_attn_skip=with_cluster_attn_skip,
                                    zero_init_cluster_token=zero_init_cluster_token,
-                                   with_cluster_l2_norm=with_cluster_l2_norm)
+                                   with_cluster_l2_norm=with_cluster_l2_norm,
+                                   i2c_share_attn=i2c_share_attn)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
