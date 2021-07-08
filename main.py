@@ -7,6 +7,8 @@
 
 import os
 import os.path as osp
+import math
+import sys
 import time
 import argparse
 import datetime
@@ -210,6 +212,13 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
             with torch.cuda.amp.autocast():
                 outputs = model(samples)
                 loss = criterion(outputs, targets)
+
+            loss_value = loss.item()
+
+            if not math.isfinite(loss_value):
+                logger.info(f"Loss is {loss_value}, stopping training")
+                sys.exit(1)
+
             optimizer.zero_grad()
 
             # this attribute is added by timm on one optimizer (adahessian)
