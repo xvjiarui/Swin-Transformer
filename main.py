@@ -285,8 +285,8 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
                 f'mem {memory_used:.0f}MB')
 
-            loss_value = loss.item()
-            if dist.get_rank() == 0 and not math.isfinite(loss_value):
+            loss_value = reduce_tensor(loss).item()
+            if not math.isfinite(loss_value):
                 logger.info(f"Loss is {loss_value}, stopping training")
                 sys.exit(1)
 
