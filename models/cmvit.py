@@ -403,12 +403,6 @@ class Attention(nn.Module):
 
         # [B, nh, N, S]
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        log_attn = F.log_softmax(attn, dim=-1)
-        if attn_weight is not None:
-            assert attn_weight.shape == log_attn.shape
-            # use log attn to match the scale of attn_weight
-            attn = attn_weight + log_attn
-            log_attn = attn
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
         assert attn.shape == (B, self.num_heads, N, S)
@@ -419,11 +413,39 @@ class Attention(nn.Module):
                         n=N, c=C // self.num_heads)
         out = self.proj(out)
         out = self.proj_drop(out)
-        if return_attn:
-            return out, log_attn
-        else:
-            return out
+        return out
 
+class AttentionAvg(nn.Module):
+    def __init__(self, dim, qk_bias=False, qk_scale=None,
+                 attn_drop=0.):
+        super().__init__()
+        self.scale = qk_scale or dim ** -0.5
+
+        self.q_proj = nn.Linear(dim, dim, bias=qk_bias)
+        self.k_proj = nn.Linear(dim, dim, bias=qk_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+
+    def forward(self, query, *, key=None, value=None):
+        B, N, C = query.shape
+        if key is None:
+            key = query
+        if value is None:
+            value = key
+        S = key.size(1)
+        # [B, N, C]
+        q = self.q_proj(query)
+        # [B, S, C]
+        k = self.k_proj(key)
+
+        # [B, N, S]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        assert attn.shape == (B, N, S)
+
+        # [B, N, C]
+        out = attn @ value
+        return out
 
 class CrossAttnBlock(nn.Module):
 
@@ -550,7 +572,8 @@ class BasicLayer(nn.Module):
                  with_cluster_attn_skip=True,
                  zero_init_cluster_token=False,
                  with_cluster_l2_norm=False,
-                 i2c_share_attn=False):
+                 i2c_share_attn=False,
+                 cluster_attn_avg=False):
 
         super().__init__()
         self.dim = dim
@@ -571,6 +594,11 @@ class BasicLayer(nn.Module):
         else:
             self.norm_cluster = nn.Identity()
         self.with_cluster_l2_norm = with_cluster_l2_norm
+        self.cluster_attn_avg = cluster_attn_avg
+
+        if cluster_attn_avg:
+            self.attn_avg = AttentionAvg(dim=dim, qk_bias=qkv_bias,
+                                         qk_scale=qk_scale, attn_drop=attn_drop)
 
         # build blocks
         self.depth = depth
@@ -650,6 +678,9 @@ class BasicLayer(nn.Module):
             # [B, S_2, S_1]
             inter_weight = self.cluster_proj(prev_cluster_token).transpose(1, 2).softmax(dim=-1)
             cluster_token = cluster_token + inter_weight @ prev_cluster_token
+
+        if self.cluster_attn_avg:
+            cluster_token = self.attn_avg(cluster_token, key=x)
 
         cluster_token = self.norm_cluster(cluster_token)
 
@@ -1023,7 +1054,8 @@ class CMViT(nn.Module):
                  zero_init_cluster_token=False,
                  gumbel_tau=1.,
                  with_cluster_l2_norm=False,
-                 i2c_share_attn=False):
+                 i2c_share_attn=False,
+                 with_cluster_attn_avg=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1175,7 +1207,8 @@ class CMViT(nn.Module):
                                    with_cluster_attn_skip=with_cluster_attn_skip,
                                    zero_init_cluster_token=zero_init_cluster_token,
                                    with_cluster_l2_norm=with_cluster_l2_norm,
-                                   i2c_share_attn=i2c_share_attn)
+                                   i2c_share_attn=i2c_share_attn,
+                                   cluster_attn_avg=with_cluster_attn_avg)
             self.layers.append(layer)
 
         self.norm = norm_layer(self.num_features)
