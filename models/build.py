@@ -10,6 +10,7 @@ from .gvit import GroupingVisionTransformer
 from .vit import VisionTransformer, RecurrentVisionTransformer
 from .mvit import MViT, RecurrentMViT
 from .cmvit import CMViT, RecurrentCMViT
+from .cluster_vit import ClusterViT
 
 
 def build_model(config):
@@ -108,6 +109,39 @@ def build_model(config):
                       with_cluster_l2_norm=config.MODEL.CMVIT.WITH_CLUSTER_L2_NORM,
                       i2c_share_attn=config.MODEL.CMVIT.I2C_SHARE_ATTN,
                       with_cluster_attn_avg=config.MODEL.CMVIT.WITH_CLUSTER_ATTN_AVG)
+    elif model_type == 'cvit':
+        model = ClusterViT(img_size=config.DATA.IMG_SIZE,
+                           patch_size=config.MODEL.CVIT.PATCH_SIZE,
+                           in_chans=config.MODEL.CVIT.IN_CHANS,
+                           num_classes=config.MODEL.NUM_CLASSES,
+                           embed_dim=config.MODEL.CVIT.EMBED_DIM,
+                           embed_factors=config.MODEL.CVIT.EMBED_FACTORS,
+                           depths=config.MODEL.CVIT.DEPTHS,
+                           num_clusters=config.MODEL.CVIT.NUM_CLUSTERS,
+                           downsample_types=config.MODEL.CVIT.DOWNSAMPLE_TYPES,
+                           dim_per_head=config.MODEL.CVIT.DIM_PER_HEAD,
+                           mlp_ratio=config.MODEL.CVIT.MLP_RATIO,
+                           qkv_bias=config.MODEL.CVIT.QKV_BIAS,
+                           qk_scale=config.MODEL.CVIT.QK_SCALE,
+                           drop_rate=config.MODEL.DROP_RATE,
+                           drop_path_rate=config.MODEL.DROP_PATH_RATE,
+                           attn_mask_style=config.MODEL.CVIT.ATTN_MASK_STYLE,
+                           patch_norm=config.MODEL.CVIT.PATCH_NORM,
+                           use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                           assign_type=config.MODEL.CVIT.ASSIGN_TYPE,
+                           num_assign=config.MODEL.CVIT.NUM_ASSIGN,
+                           inter_mode=config.MODEL.CVIT.INTER_MODE,
+                           assign_skip=config.MODEL.CVIT.ASSIGN_SKIP,
+                           with_mlp_inter=config.MODEL.CVIT.WITH_MLP_INTER,
+                           with_gap=config.MODEL.CVIT.WITH_GAP,
+                           pos_embed_type=config.MODEL.CVIT.POS_EMBED_TYPE,
+                           cluster_token_wd=config.MODEL.CVIT.CLUSTER_TOKEN_WD,
+                           patch_embed_type=config.MODEL.CVIT.PATCH_EMBED_TYPE,
+                           with_cluster_proj=config.MODEL.CVIT.WITH_CLUSTER_PROJ,
+                           zero_init_cluster_token=config.MODEL.CVIT.ZERO_INIT_CLUSTER_TOKEN,
+                           gumbel_tau=config.MODEL.CVIT.ASSIGN_GUMBEL_TAU,
+                           with_cluster_attn_avg=config.MODEL.CVIT.WITH_CLUSTER_ATTN_AVG,
+                           pred_src=config.MODEL.CVIT.PRED_SRC)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

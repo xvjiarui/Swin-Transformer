@@ -285,10 +285,11 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
                 f'mem {memory_used:.0f}MB')
 
-            loss_value = reduce_tensor(loss).item()
-            if not math.isfinite(loss_value):
-                logger.info(f"Loss is {loss_value}, stopping training")
-                sys.exit(1)
+            if config.AUTOCAST:
+                loss_value = reduce_tensor(loss).item()
+                if not math.isfinite(loss_value):
+                    logger.info(f"Loss is {loss_value}, stopping training")
+                    sys.exit(1)
 
     epoch_time = time.time() - start
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
