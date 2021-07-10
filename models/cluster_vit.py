@@ -886,7 +886,7 @@ class ClusterViT(nn.Module):
         self.attn_drop_rate = attn_drop_rate
         self.drop_path_rate = drop_path_rate
         self.with_gap = with_gap
-        assert len(set(downsample_types) - {'conv', 'unfold', 'assign'}) == 0
+        assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none'}) == 0
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear']
@@ -942,6 +942,8 @@ class ClusterViT(nn.Module):
 
         input_seq_len = num_patches
         hw_shape = self.patches_resolution
+        next_input_seq_len = input_seq_len
+        next_hw_shape = hw_shape
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
@@ -949,7 +951,7 @@ class ClusterViT(nn.Module):
             downsample = None
             if i_layer < self.num_layers -1 :
                 out_dim = embed_dim * embed_factors[i_layer + 1]
-                if downsample_types[i_layer] != 'assign':
+                if downsample_types[i_layer] == 'conv':
                     downsample = SpatialPool(mode=downsample_types[i_layer],
                                              dim=dim,
                                              out_dim=out_dim,
@@ -959,7 +961,7 @@ class ClusterViT(nn.Module):
 
                     next_hw_shape = (hw_shape[0] // 2, hw_shape[1] // 2)
                     next_input_seq_len = next_hw_shape[0] * next_hw_shape[1]
-                else:
+                elif downsample_types[i_layer] == 'assign':
                     downsample = TokenAssign(dim=dim,
                                              out_dim=out_dim,
                                              num_heads=dim // dim_per_head,
@@ -977,6 +979,10 @@ class ClusterViT(nn.Module):
                                              gumbel_tau=gumbel_tau)
                     next_hw_shape = [-1, -1]
                     next_input_seq_len = num_assign[i_layer]
+                elif downsample_types[i_layer] == 'none':
+                    downsample = None
+                else:
+                    raise ValueError
 
             if i_layer > 0 and with_cluster_proj:
                 cluster_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])

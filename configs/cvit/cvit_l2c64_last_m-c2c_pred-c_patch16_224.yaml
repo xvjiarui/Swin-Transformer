@@ -1,0 +1,17 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+
+MODEL:
+  TYPE: cvit
+  DROP_PATH_RATE: 0.
+  CVIT:
+    EMBED_DIM: 768
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [11, 1]
+    NUM_CLUSTERS: [0, 64]
+    EMBED_FACTORS: [1, 1]
+    DOWNSAMPLE_TYPES: ['none']
+    NUM_ASSIGN: [-1]
+    WITH_GAP: true
+    ATTN_MASK_STYLE: ['c2c']
+    PRED_SRC: ['image', 'cluster']
