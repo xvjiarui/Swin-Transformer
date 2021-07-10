@@ -574,7 +574,7 @@ class BasicLayer(nn.Module):
                  norm_layer=nn.LayerNorm, downsample=None,
                  use_checkpoint=False,
                  with_cls_token=True,
-                 cluster_proj=None,
+                 cluster_weight_proj=None,
                  zero_init_cluster_token=False,
                  cluster_attn_avg=False,
                  attn_mask_style=['c2c']):
@@ -623,7 +623,14 @@ class BasicLayer(nn.Module):
         self.input_resolution = input_seq_len
         self.use_checkpoint = use_checkpoint
 
-        self.cluster_proj = cluster_proj
+        self.cluster_weight_proj = cluster_weight_proj
+        if isinstance(cluster_weight_proj, nn.Linear):
+            if cluster_weight_proj.in_features != dim:
+                self.cluster_proj = nn.Sequential(
+                    norm_layer(cluster_weight_proj.in_features),
+                    nn.Linear(cluster_weight_proj.in_features, dim))
+            else:
+                self.cluster_proj = nn.Identity()
 
     @property
     def with_cluster_token(self):
@@ -643,10 +650,10 @@ class BasicLayer(nn.Module):
         """
         if self.with_cluster_token:
             cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
-            if self.cluster_proj is not None:
+            if self.cluster_weight_proj is not None:
                 # [B, S_2, S_1]
-                inter_weight = self.cluster_proj(prev_cluster_token).transpose(1, 2).softmax(dim=-1)
-                cluster_token = cluster_token + inter_weight @ prev_cluster_token
+                inter_weight = self.cluster_weight_proj(prev_cluster_token).transpose(1, 2).softmax(dim=-1)
+                cluster_token = cluster_token + inter_weight @ self.cluster_proj(prev_cluster_token)
 
             if self.cluster_attn_avg:
                 cluster_token = self.attn_avg(cluster_token, key=x)
@@ -985,9 +992,9 @@ class ClusterViT(nn.Module):
                     raise ValueError
 
             if i_layer > 0 and with_cluster_proj:
-                cluster_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])
+                cluster_weight_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])
             else:
-                cluster_proj = None
+                cluster_weight_proj = None
             layer = BasicLayer(dim=dim,
                                input_seq_len=input_seq_len,
                                depth=depths[i_layer],
@@ -1002,7 +1009,7 @@ class ClusterViT(nn.Module):
                                downsample=downsample,
                                use_checkpoint=use_checkpoint,
                                with_cls_token=self.with_cls_token,
-                               cluster_proj=cluster_proj,
+                               cluster_weight_proj=cluster_weight_proj,
                                zero_init_cluster_token=zero_init_cluster_token,
                                cluster_attn_avg=with_cluster_attn_avg,
                                attn_mask_style=attn_mask_style)
