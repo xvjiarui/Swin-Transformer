@@ -902,6 +902,7 @@ class ClusterViT(nn.Module):
         self.cluster_token_wd = cluster_token_wd
         assert patch_embed_type in ['simple', 'stem-BN', 'stem-LN', 'stem-depth-BN', 'stem-depth-LN']
         assert len(set(pred_src) - {'image', 'cluster'}) == 0
+        assert len(pred_src) > 0
         self.pred_src = pred_src
 
         if patch_embed_type == 'simple':
@@ -1018,7 +1019,8 @@ class ClusterViT(nn.Module):
                 input_seq_len = next_input_seq_len
                 hw_shape = next_hw_shape
 
-        self.norm = norm_layer(self.num_features)
+        if 'image' in pred_src:
+            self.norm = norm_layer(self.num_features)
         self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
         if 'cluster' in pred_src:
@@ -1073,21 +1075,27 @@ class ClusterViT(nn.Module):
         for layer in self.layers:
             x, cluster_token = layer(x, cluster_token)
 
-        # [B, L, C]
-        x = self.norm(x)
-        if self.with_gap:
-            x = self.avgpool(x.transpose(1, 2))  # B C 1
-            x = torch.flatten(x, 1)
-        else:
-            x = x[:, 0]
+        out = None
+        if 'image' in self.pred_src:
+            # [B, L, C]
+            x = self.norm(x)
+            if self.with_gap:
+                x = self.avgpool(x.transpose(1, 2))  # B C 1
+                x = torch.flatten(x, 1)
+            else:
+                x = x[:, 0]
+            out = x
 
         if 'cluster' in self.pred_src:
             cluster_token = self.norm_cluster(cluster_token)
             cluster_token = self.avgpool(cluster_token.transpose(1, 2))
             cluster_token = torch.flatten(cluster_token, 1)
-            x = (x + cluster_token)/2
+            if out is not None:
+                out = (out + cluster_token)/2
+            else:
+                out = cluster_token
 
-        return x
+        return out
 
     def forward(self, x):
         x = self.forward_features(x)
