@@ -15,6 +15,6 @@ MODEL:
     WITH_GAP: true
     ATTN_MASK_STYLE: []
     INTER_MODE: linear
-  AUG:
-    MIXUP: 0.
-    CUTMIX: 0.
+AUG:
+  MIXUP: 0.
+  CUTMIX: 0.

@@ -15,4 +15,5 @@ MODEL:
     WITH_GAP: true
     ATTN_MASK_STYLE: []
     INTER_MODE: linear
-    WEIGHT_DECAY: 0.01
+TRAIN:
+  WEIGHT_DECAY: 0.01
