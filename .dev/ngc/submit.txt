@@ -33,7 +33,12 @@
 #cvit_l2c64a8c0_lin_no-mix_patch16_224.yaml
 #cvit_l2c64a8c0_lin_patch16_224.yaml
 #cvit_l2c64a8c0_lin_wdd5_patch16_224.yaml
-cvit_l2c8a8c0_lin_no-mix_patch16_224.yaml
-cvit_l2c8a8c0_lin_patch16_224.yaml
-cvit_l2c64a8c0_lin_ctwd_wdd5_patch16_224.yaml
-cvit_l2c64a8c0_lin_no-mix_ctwd_wdd5_patch16_224.yaml
+#cvit_l2c8a8c0_lin_no-mix_patch16_224.yaml
+#cvit_l2c8a8c0_lin_patch16_224.yaml
+#cvit_l2c64a8c0_lin_ctwd_wdd5_patch16_224.yaml
+#cvit_l2c64a8c0_lin_no-mix_ctwd_wdd5_patch16_224.yaml
+cvit_l2c8a8c0_cp_patch16_224.yaml
+cvits_l1c0_patch16_224.yaml
+cvits_l1c0_patch16_384.yaml
+cvits_l2c64a8c0_lin_patch16_224.yaml
+cvits_l2c64a8c0_lin_patch16_384.yaml

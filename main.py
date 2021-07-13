@@ -88,7 +88,8 @@ def main(config):
     if config.WANDB and dist.get_rank() == 0:
         import wandb
         wandb.init(project='swin', name=osp.join(config.MODEL.NAME, config.TAG),
-                   dir=config.OUTPUT, config=config, resume=True)
+                   dir=config.OUTPUT, config=config, resume=True,
+                   tags=[config.MODEL.TYPE])
     else:
         wandb = None
     dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)

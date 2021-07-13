@@ -269,7 +269,7 @@ class TokenAssign(nn.Module):
         self.inv_attn = inv_attn
         self.gumbel = gumbel
         self.categorical = categorical
-        assert inter_mode in ['attn', 'linear']
+        assert inter_mode in ['attn', 'linear', 'copy']
         self.inter_mode = inter_mode
         self.with_mlp_inter = with_mlp_inter
         self.with_cls_token = with_cls_token
@@ -283,8 +283,12 @@ class TokenAssign(nn.Module):
             self.norm_post_tokens = norm_layer(dim)
         if inter_mode == 'attn':
             self.inter_attn = Attention(dim=dim, out_dim=out_seq_len, num_heads=num_heads, qkv_bias=True)
-        else:
+        elif inter_mode == 'linear':
             self.inter_proj = nn.Linear(dim, out_seq_len)
+        elif inter_mode == 'copy':
+            assert num_cluster == out_seq_len, f'{num_cluster} vs {out_seq_len}'
+        else:
+            raise ValueError
         # norm on x
         self.norm_x = norm_layer(dim)
         self.assign = AssignAttention(dim=dim, num_heads=num_heads,
@@ -316,19 +320,27 @@ class TokenAssign(nn.Module):
             x (torch.Tensor): image tokens, [B, L, C]
             cluster_tokens (torch.Tensor): cluster tokens, [B, S_1, C]
 
+        inter_weight (torch.Tensor): [B, S_2, S_1], S_2 is the new number of cluster tokens,
+            it's already softmaxed along dim=-1
+
         Returns:
-            inter_weight (torch.Tensor): [B, S_2, S_1], S_2 is the new number of cluster tokens,
-                it's already softmaxed along dim=-1
+            inter_cluster_tokens (torch.Tensor): [B, S_2, C]
         """
-        if self.inter_mode == 'attn':
+        if self.inter_mode == 'copy':
+            return cluster_tokens
+        elif self.inter_mode == 'attn':
             # [N, S_1, S_2]
             inter_weight = self.inter_attn(cluster_tokens, key=x)
-        else:
+        elif self.inter_mode == 'linear':
             # [N, S_1, S_2]
             inter_weight = self.inter_proj(cluster_tokens)
+        else:
+            raise ValueError
         # [N, S_2, S_1]
         inter_weight = inter_weight.transpose(1, 2).softmax(dim=-1)
-        return inter_weight
+        # [B, S_2, C]
+        inter_cluster_tokens = inter_weight @ cluster_tokens
+        return inter_cluster_tokens
 
     def forward(self, x, cluster_tokens):
         """
@@ -341,10 +353,8 @@ class TokenAssign(nn.Module):
         """
         cluster_tokens = self.norm_tokens(cluster_tokens)
         x = self.norm_x(x)
-        # interpolation weight, [B, S_2, S_1]
-        inter_weight = self.interpolate_token(x, cluster_tokens)
         # [B, S_2, C]
-        inter_cluster_tokens = inter_weight @ cluster_tokens
+        inter_cluster_tokens = self.interpolate_token(x, cluster_tokens)
         if self.with_mlp_inter:
             # [B, S_2, C] <- [B, S_1, C]
             inter_cluster_tokens_res = self.mlp_inter(cluster_tokens.transpose(1, 2)).transpose(1, 2)
@@ -896,7 +906,7 @@ class ClusterViT(nn.Module):
         assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none'}) == 0
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
-        assert inter_mode in ['attn', 'linear']
+        assert inter_mode in ['attn', 'linear', 'copy']
         assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
         self.cluster_token_wd = cluster_token_wd
