@@ -263,7 +263,8 @@ class TokenAssign(nn.Module):
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
                  categorical=False, inter_mode='attn', with_mlp_inter=False,
-                 assign_skip=True, gumbel_tau=1.):
+                 assign_skip=True, gumbel_tau=1.,
+                 inter_hard=False, inter_gumbel=False):
         super(TokenAssign, self).__init__()
         self.hard = hard
         self.inv_attn = inv_attn
@@ -271,6 +272,8 @@ class TokenAssign(nn.Module):
         self.categorical = categorical
         assert inter_mode in ['attn', 'linear', 'copy']
         self.inter_mode = inter_mode
+        self.inter_hard = inter_hard
+        self.inter_gumbel = inter_gumbel
         self.with_mlp_inter = with_mlp_inter
         self.with_cls_token = with_cls_token
         self.out_seq_len = out_seq_len
@@ -337,7 +340,14 @@ class TokenAssign(nn.Module):
         else:
             raise ValueError
         # [N, S_2, S_1]
-        inter_weight = inter_weight.transpose(1, 2).softmax(dim=-1)
+        inter_weight = inter_weight.transpose(1, 2)
+        if self.inter_gumbel and self.training:
+            inter_weight = gumbel_softmax(inter_weight, dim=-1, hard=self.inter_hard, tau=1.)
+        else:
+            if self.inter_hard:
+                inter_weight = hard_softmax(inter_weight, dim=-1)
+            else:
+                inter_weight = F.softmax(inter_weight, dim=-1)
         # [B, S_2, C]
         inter_cluster_tokens = inter_weight @ cluster_tokens
         return inter_cluster_tokens
@@ -876,6 +886,7 @@ class ClusterViT(nn.Module):
                  assign_type=('gumbel', 'hard', 'inv'),
                  assign_skip=True,
                  inter_mode='attn',
+                 inter_type=(),
                  with_mlp_inter=False,
                  with_gap=False,
                  pos_embed_type='simple',
@@ -908,6 +919,7 @@ class ClusterViT(nn.Module):
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear', 'copy']
         assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
+        assert len(set(inter_type) - {'hard', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
         self.cluster_token_wd = cluster_token_wd
         assert patch_embed_type in ['simple', 'stem-BN', 'stem-LN', 'stem-depth-BN', 'stem-depth-LN']
@@ -994,7 +1006,9 @@ class ClusterViT(nn.Module):
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
                                              with_mlp_inter=with_mlp_inter,
-                                             gumbel_tau=gumbel_tau)
+                                             gumbel_tau=gumbel_tau,
+                                             inter_hard='hard' in inter_type,
+                                             inter_gumbel='gumbel' in inter_type)
                     next_hw_shape = [-1, -1]
                     next_input_seq_len = num_assign[i_layer]
                 elif downsample_types[i_layer] == 'none':

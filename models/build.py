@@ -131,6 +131,7 @@ def build_model(config):
                            assign_type=config.MODEL.CVIT.ASSIGN_TYPE,
                            num_assign=config.MODEL.CVIT.NUM_ASSIGN,
                            inter_mode=config.MODEL.CVIT.INTER_MODE,
+                           inter_type=config.MODEL.CVIT.INTER_TYPE,
                            assign_skip=config.MODEL.CVIT.ASSIGN_SKIP,
                            with_mlp_inter=config.MODEL.CVIT.WITH_MLP_INTER,
                            with_gap=config.MODEL.CVIT.WITH_GAP,
