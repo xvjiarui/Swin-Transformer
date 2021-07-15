@@ -133,7 +133,6 @@ def build_model(config):
                            inter_mode=config.MODEL.CVIT.INTER_MODE,
                            inter_type=config.MODEL.CVIT.INTER_TYPE,
                            assign_skip=config.MODEL.CVIT.ASSIGN_SKIP,
-                           with_mlp_inter=config.MODEL.CVIT.WITH_MLP_INTER,
                            with_gap=config.MODEL.CVIT.WITH_GAP,
                            pos_embed_type=config.MODEL.CVIT.POS_EMBED_TYPE,
                            cluster_token_wd=config.MODEL.CVIT.CLUSTER_TOKEN_WD,

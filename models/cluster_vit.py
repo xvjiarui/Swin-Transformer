@@ -262,7 +262,7 @@ class TokenAssign(nn.Module):
     def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
-                 categorical=False, inter_mode='attn', with_mlp_inter=False,
+                 categorical=False, inter_mode='attn',
                  assign_skip=True, gumbel_tau=1.,
                  inter_hard=False, inter_gumbel=False):
         super(TokenAssign, self).__init__()
@@ -270,26 +270,25 @@ class TokenAssign(nn.Module):
         self.inv_attn = inv_attn
         self.gumbel = gumbel
         self.categorical = categorical
-        assert inter_mode in ['attn', 'linear', 'copy']
+        assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
         self.inter_mode = inter_mode
         self.inter_hard = inter_hard
         self.inter_gumbel = inter_gumbel
-        self.with_mlp_inter = with_mlp_inter
         self.with_cls_token = with_cls_token
         self.out_seq_len = out_seq_len
         self.assign_skip = assign_skip
         # norm on cluster_tokens
         self.norm_tokens = norm_layer(dim)
         tokens_dim, channels_dim = [int(x * dim) for x in to_2tuple(mlp_ratio)]
-        if with_mlp_inter:
-            self.mlp_inter = Mlp(num_cluster, tokens_dim, out_seq_len)
-            self.norm_post_tokens = norm_layer(dim)
         if inter_mode == 'attn':
             self.inter_attn = Attention(dim=dim, out_dim=out_seq_len, num_heads=num_heads, qkv_bias=True)
         elif inter_mode == 'linear':
             self.inter_proj = nn.Linear(dim, out_seq_len)
         elif inter_mode == 'copy':
             assert num_cluster == out_seq_len, f'{num_cluster} vs {out_seq_len}'
+        elif inter_mode == 'mixer':
+            self.mlp_inter = Mlp(num_cluster, tokens_dim, out_seq_len)
+            self.norm_post_tokens = norm_layer(dim)
         else:
             raise ValueError
         # norm on x
@@ -329,7 +328,12 @@ class TokenAssign(nn.Module):
         Returns:
             inter_cluster_tokens (torch.Tensor): [B, S_2, C]
         """
-        if self.inter_mode == 'copy':
+        if self.inter_mode == 'mixer':
+            # [B, S_2, C] <- [B, S_1, C]
+            inter_cluster_tokens = self.mlp_inter(cluster_tokens.transpose(1, 2)).transpose(1, 2)
+            inter_cluster_tokens = self.norm_post_tokens(inter_cluster_tokens)
+            return inter_cluster_tokens
+        elif self.inter_mode == 'copy':
             return cluster_tokens
         elif self.inter_mode == 'attn':
             # [N, S_1, S_2]
@@ -365,11 +369,6 @@ class TokenAssign(nn.Module):
         x = self.norm_x(x)
         # [B, S_2, C]
         inter_cluster_tokens = self.interpolate_token(x, cluster_tokens)
-        if self.with_mlp_inter:
-            # [B, S_2, C] <- [B, S_1, C]
-            inter_cluster_tokens_res = self.mlp_inter(cluster_tokens.transpose(1, 2)).transpose(1, 2)
-            inter_cluster_tokens_res = self.norm_post_tokens(inter_cluster_tokens_res)
-            inter_cluster_tokens += inter_cluster_tokens_res
         if self.with_cls_token:
             new_x = self.assign(query=inter_cluster_tokens, key=x[:, 1:])
         else:
@@ -887,7 +886,6 @@ class ClusterViT(nn.Module):
                  assign_skip=True,
                  inter_mode='attn',
                  inter_type=(),
-                 with_mlp_inter=False,
                  with_gap=False,
                  pos_embed_type='simple',
                  cluster_token_wd=False,
@@ -917,7 +915,7 @@ class ClusterViT(nn.Module):
         assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none'}) == 0
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
-        assert inter_mode in ['attn', 'linear', 'copy']
+        assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
         assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
         assert len(set(inter_type) - {'hard', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
@@ -1005,7 +1003,6 @@ class ClusterViT(nn.Module):
                                              inter_mode=inter_mode,
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
-                                             with_mlp_inter=with_mlp_inter,
                                              gumbel_tau=gumbel_tau,
                                              inter_hard='hard' in inter_type,
                                              inter_gumbel='gumbel' in inter_type)
