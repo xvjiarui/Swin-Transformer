@@ -10,7 +10,7 @@ MODEL:
     DEPTHS: [3, 3, 3, 3]
     NUM_CLUSTERS: [32, 16, 8, 0]
     EMBED_FACTORS: [1, 1, 1, 1]
-    DOWNSAMPLE_TYPES: ['assign']
+    DOWNSAMPLE_TYPES: ['assign', 'assign', 'assign']
     NUM_ASSIGN: [32, 16, 8]
     WITH_GAP: true
     ATTN_MASK_STYLE: []
