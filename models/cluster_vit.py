@@ -215,7 +215,7 @@ class AssignAttention(nn.Module):
         #
         return attn
 
-    def forward(self, query, *, key=None, value=None, attn_weight=None):
+    def forward(self, query, key=None, *, value=None, attn_weight=None):
         B, N, C = query.shape
         if key is None:
             key = query
@@ -370,9 +370,9 @@ class TokenAssign(nn.Module):
         # [B, S_2, C]
         inter_cluster_tokens = self.interpolate_token(x, cluster_tokens)
         if self.with_cls_token:
-            new_x = self.assign(query=inter_cluster_tokens, key=x[:, 1:])
+            new_x = self.assign(inter_cluster_tokens, x[:, 1:])
         else:
-            new_x = self.assign(query=inter_cluster_tokens, key=x)
+            new_x = self.assign(inter_cluster_tokens, x)
         if self.assign_skip:
             new_x += inter_cluster_tokens
 
@@ -382,6 +382,44 @@ class TokenAssign(nn.Module):
         new_x = self.reduction(new_x) + self.mlp_channels(self.norm_new_x(new_x))
 
         return new_x, None
+
+class TokenLearner(nn.Module):
+
+    def __init__(self, dim, out_dim, out_seq_len, hw_shape,
+                 norm_layer,
+                 num_convs=3,
+                 with_cls_token=False, act_layer=nn.GELU):
+        super(TokenLearner, self).__init__()
+        self.hw_shape = hw_shape
+        self.norm = norm_layer(dim)
+        convs = []
+        for i in range(num_convs - 1):
+            convs.append(
+                nn.Conv2d(in_channels=dim, out_channels=dim, kernel_size=(3, 3),
+                          padding=(1, 1)))
+            convs.append(act_layer())
+        convs.append(nn.Conv2d(in_channels=dim, out_channels=out_seq_len,
+                               kernel_size=(3, 3), padding=(1, 1)))
+        self.convs = nn.Sequential(*convs)
+        if out_dim is not None and dim != out_dim:
+            self.reduction = nn.Sequential(
+                norm_layer(dim),
+                nn.Linear(dim, out_dim, bias=False))
+        else:
+            self.reduction = nn.Identity()
+        self.sigmoid = nn.Sigmoid()
+        assert not with_cls_token
+
+    def forward(self, x):
+        # [B, L, S1]
+        attn, hw_shape = attention_pool(self.norm(x), self.convs, self.hw_shape, False)
+        attn = self.sigmoid(attn)
+        # [B, S1, C]
+        x = attn.transpose(1, 2) @ x
+        x = self.reduction(x)
+
+        return x, None
+
 
 
 class Attention(nn.Module):
@@ -912,7 +950,7 @@ class ClusterViT(nn.Module):
         self.attn_drop_rate = attn_drop_rate
         self.drop_path_rate = drop_path_rate
         self.with_gap = with_gap
-        assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none'}) == 0
+        assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none', 'learner'}) == 0
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
@@ -1006,6 +1044,14 @@ class ClusterViT(nn.Module):
                                              gumbel_tau=gumbel_tau,
                                              inter_hard='hard' in inter_type,
                                              inter_gumbel='gumbel' in inter_type)
+                    next_hw_shape = [-1, -1]
+                    next_input_seq_len = num_assign[i_layer]
+                elif downsample_types[i_layer] == 'learner':
+                    downsample = TokenLearner(dim=dim, out_dim=out_dim,
+                                              out_seq_len=num_assign[i_layer],
+                                              hw_shape=hw_shape,
+                                              with_cls_token=self.with_cls_token,
+                                              norm_layer=norm_layer)
                     next_hw_shape = [-1, -1]
                     next_input_seq_len = num_assign[i_layer]
                 elif downsample_types[i_layer] == 'none':
