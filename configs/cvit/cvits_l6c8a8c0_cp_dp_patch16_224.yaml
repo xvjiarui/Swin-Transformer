@@ -9,7 +9,7 @@ MODEL:
     PATCH_SIZE: 16
     DEPTHS: [2, 2, 2, 2, 2, 2]
     NUM_CLUSTERS: [128, 64, 32, 16, 8, 0]
-    EMBED_FACTORS: [1, 1, 1, 1, 1]
+    EMBED_FACTORS: [1, 1, 1, 1, 1, 1]
     DOWNSAMPLE_TYPES: ['assign', 'assign', 'assign', 'assign', 'assign']
     NUM_ASSIGN: [128, 64, 32, 16, 8]
     WITH_GAP: true
