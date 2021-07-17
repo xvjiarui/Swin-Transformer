@@ -1225,7 +1225,7 @@ class ClusterViT(nn.Module):
         outs = []
         cluster_token = None
         for i, layer in enumerate(self.layers):
-            if len(self.deep_sup_layers) > i:
+            if len(self.deep_sup_layers) > i and self.training:
                 x, cluster_token, layer_outs = layer(x, cluster_token, return_all_x=True)
                 assert len(self.deep_sup_layers[i]) == len(layer_outs)
                 for j, blk_out in enumerate(layer_outs):
@@ -1244,7 +1244,10 @@ class ClusterViT(nn.Module):
             x = x[:, 0]
         x = self.head(x)
 
-        return [x] + outs
+        if self.training:
+            return [x] + outs
+        else:
+            return x
 
 
 
