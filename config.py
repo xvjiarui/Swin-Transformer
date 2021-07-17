@@ -69,6 +69,9 @@ _C.MODEL.SELF_DIST_ALPHA = 0.
 _C.MODEL.SELF_DIST_TYPE = 'soft'
 _C.MODEL.SELF_DIST_TAU = 1.
 
+# Multi task loss is enabled when length > 0
+_C.MODEL.MULTI_PRED_WEIGHT= []
+
 # Swin Transformer parameters
 _C.MODEL.SWIN = CN()
 _C.MODEL.SWIN.PATCH_SIZE = 4
@@ -220,6 +223,7 @@ _C.MODEL.CVIT.ZERO_INIT_CLUSTER_TOKEN = False
 _C.MODEL.CVIT.ASSIGN_GUMBEL_TAU = 1.
 _C.MODEL.CVIT.WITH_CLUSTER_ATTN_AVG = False
 _C.MODEL.CVIT.PRED_SRC = ['image']
+_C.MODEL.CVIT.DEEP_SUP = []
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()

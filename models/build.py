@@ -141,7 +141,8 @@ def build_model(config):
                            zero_init_cluster_token=config.MODEL.CVIT.ZERO_INIT_CLUSTER_TOKEN,
                            gumbel_tau=config.MODEL.CVIT.ASSIGN_GUMBEL_TAU,
                            with_cluster_attn_avg=config.MODEL.CVIT.WITH_CLUSTER_ATTN_AVG,
-                           pred_src=config.MODEL.CVIT.PRED_SRC)
+                           pred_src=config.MODEL.CVIT.PRED_SRC,
+                           deep_sup=config.MODEL.CVIT.DEEP_SUP)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

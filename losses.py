@@ -4,6 +4,7 @@
 Implements the knowledge distillation loss
 """
 import torch
+import torch.nn as nn
 from torch.nn import functional as F
 
 
@@ -58,4 +59,25 @@ class DistillationLoss(torch.nn.Module):
             raise KeyError
 
         loss = base_loss * (1 - self.alpha) + distillation_loss * self.alpha
+        return loss
+
+
+class MultiPredLoss(nn.Module):
+
+    def __init__(self, loss, weight):
+        super(MultiPredLoss, self).__init__()
+        self.loss = loss
+        self.weight = weight
+
+    @property
+    def num_losses(self):
+        return len(self.weight)
+
+    def forward(self, preds, target):
+        assert isinstance(preds, (tuple, list))
+        assert len(preds) == self.num_losses
+        loss = 0
+        for i in range(self.num_losses):
+            loss += self.weight[i] * self.loss(preds[i], target)
+
         return loss

@@ -29,7 +29,7 @@ from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
 from env import collect_env, get_git_hash, increase_l2_cache
-from losses import DistillationLoss
+from losses import DistillationLoss, MultiPredLoss
 from amp_utils import NativeScaler
 import gpu_affinity
 
@@ -132,6 +132,9 @@ def main(config):
                                      distillation_type=config.MODEL.SELF_DIST_TYPE,
                                      alpha=config.MODEL.SELF_DIST_ALPHA,
                                      tau=config.MODEL.SELF_DIST_TAU)
+
+    if len(config.MODEL.MULTI_PRED_WEIGHT):
+        criterion = MultiPredLoss(criterion, weight=config.MODEL.MULTI_PRED_WEIGHT)
 
     max_accuracy = 0.0
 

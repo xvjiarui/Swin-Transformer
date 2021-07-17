@@ -699,12 +699,14 @@ class BasicLayer(nn.Module):
                f"depth={self.depth}, \n" \
                f"num_cluster={self.num_cluster}" \
 
-    def forward(self, x, prev_cluster_token=None):
+    def forward(self, x, prev_cluster_token=None, return_all_x=False):
         """
         Args:
             x (torch.Tensor): image tokens, [B, L, C]
             prev_cluster_token (torch.Tensor): cluster tokens, [B, S_1, C]
+            return_all_x (bool): whether return all intermediate feature
         """
+        outs = []
         if self.with_cluster_token:
             cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
             if self.cluster_weight_proj is not None:
@@ -725,6 +727,8 @@ class BasicLayer(nn.Module):
                 x = checkpoint.checkpoint(blk, x, mask=self.attn_mask)
             else:
                 x = blk(x, mask=self.attn_mask)
+            if return_all_x:
+                outs.append(x)
         if self.with_cluster_token:
             x, cluster_token = x[:, :-self.num_cluster], x[:, -self.num_cluster:]
 
@@ -733,6 +737,9 @@ class BasicLayer(nn.Module):
                 x, hw_shape = self.downsample(x, cluster_token)
             else:
                 x, hw_shape = self.downsample(x)
+
+        if return_all_x:
+            return x, cluster_token, tuple(outs)
 
         return x, cluster_token
 
@@ -932,7 +939,8 @@ class ClusterViT(nn.Module):
                  zero_init_cluster_token=False,
                  gumbel_tau=1.,
                  with_cluster_attn_avg=False,
-                 pred_src=['image']):
+                 pred_src=['image'],
+                 deep_sup=[]):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1006,6 +1014,8 @@ class ClusterViT(nn.Module):
         # stochastic depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
+        deep_sup_layers = []
+
         input_seq_len = num_patches
         hw_shape = self.patches_resolution
         next_input_seq_len = input_seq_len
@@ -1059,6 +1069,34 @@ class ClusterViT(nn.Module):
                 else:
                     raise ValueError
 
+                if len(deep_sup) > i_layer:
+                    deep_sup_layers.append(
+                        nn.ModuleList(
+                            nn.ModuleDict(
+                                {'group': TokenAssign(
+                                    dim=dim,
+                                    out_dim=out_dim,
+                                    num_heads=dim // dim_per_head,
+                                    num_cluster=num_clusters[
+                                        i_layer],
+                                    out_seq_len=num_assign[
+                                        i_layer],
+                                    norm_layer=norm_layer,
+                                    hard='hard' in assign_type,
+                                    inv_attn='inv' in assign_type,
+                                    gumbel='gumbel' in assign_type,
+                                    categorical='categorical' in assign_type,
+                                    inter_mode=inter_mode,
+                                    assign_skip=assign_skip,
+                                    with_cls_token=self.with_cls_token,
+                                    gumbel_tau=gumbel_tau,
+                                    inter_hard='hard' in inter_type,
+                                    inter_gumbel='gumbel' in inter_type),
+                                    'norm': norm_layer(out_dim),
+                                    'head': nn.Linear(out_dim, num_classes)
+                                }
+                            ) for _ in range(deep_sup[i_layer])))
+
             if i_layer > 0 and with_cluster_proj:
                 cluster_weight_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])
             else:
@@ -1090,12 +1128,21 @@ class ClusterViT(nn.Module):
             self.norm = norm_layer(self.num_features)
         self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
+        if len(deep_sup):
+            self.deep_sup_layers = nn.ModuleList(deep_sup_layers)
+        else:
+            self.deep_sup_layers = None
+
         if 'cluster' in pred_src:
             self.norm_cluster = norm_layer(self.num_features)
 
         if self.with_cls_token:
             trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
+
+    @property
+    def with_deep_sup(self):
+        return self.deep_sup_layers is not None
 
     @property
     def with_cls_token(self):
@@ -1164,7 +1211,46 @@ class ClusterViT(nn.Module):
 
         return out
 
+    def forward_deep_sup(self, x):
+        B = x.shape[0]
+        x, hw_shape = self.patch_embed(x)
+
+        if self.with_cls_token:
+            cls_tokens = self.cls_token.expand(B, -1,
+                                               -1)  # stole cls_tokens impl from Phil Wang, thanks
+            x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.get_pos_embed(B, *hw_shape)
+        x = self.pos_drop(x)
+
+        outs = []
+        cluster_token = None
+        for i, layer in enumerate(self.layers):
+            if len(self.deep_sup_layers) > i:
+                x, cluster_token, layer_outs = layer(x, cluster_token, return_all_x=True)
+                assert len(self.deep_sup_layers[i]) == len(layer_outs)
+                for j, blk_out in enumerate(layer_outs):
+                    group = self.deep_sup_layers[i][j]['group']
+                    norm = self.deep_sup_layers[i][j]['norm']
+                    head = self.deep_sup_layers[i][j]['head']
+                    logit = head(self.avgpool(norm(group(blk_out, cluster_token)[0]).transpose(1, 2)).flatten(1))
+                    outs.append(logit)
+            else:
+                x, cluster_token = layer(x, cluster_token)
+        x = self.norm(x)
+        if self.with_gap:
+            x = self.avgpool(x.transpose(1, 2))  # B C 1
+            x = torch.flatten(x, 1)
+        else:
+            x = x[:, 0]
+        x = self.head(x)
+
+        return [x] + outs
+
+
+
     def forward(self, x):
+        if self.with_deep_sup:
+            return self.forward_deep_sup(x)
         x = self.forward_features(x)
         x = self.head(x)
         return x
