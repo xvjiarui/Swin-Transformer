@@ -449,7 +449,7 @@ class Attention(nn.Module):
                f'qkv_bias={self.scale}, \n' \
                f'qkv_fuse={self.qkv_fuse}'
 
-    def forward(self, query, *, key=None, value=None, mask=None):
+    def forward(self, query, key=None, *, value=None, mask=None):
         if self.qkv_fuse:
             assert key is None
             assert value is None
@@ -533,8 +533,7 @@ class CrossAttnBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False,
                  qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-                 out_dim=None, with_mlp=True, with_attn_skip=True):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm_q = norm_layer(dim)
         self.norm_k = norm_layer(dim)
@@ -543,19 +542,10 @@ class CrossAttnBlock(nn.Module):
             attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path_prob = drop_path
-        self.with_mlp = with_mlp
-        self.with_attn_skip = with_attn_skip
-        if self.with_mlp:
-            self.norm2 = norm_layer(dim)
-            mlp_hidden_dim = int(dim * mlp_ratio)
-            self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
-                           act_layer=act_layer, drop=drop, out_features=out_dim)
-            if out_dim is not None and dim != out_dim:
-                self.reduction = nn.Sequential(norm_layer(dim),
-                                               nn.Linear(dim, out_dim,
-                                                         bias=False))
-            else:
-                self.reduction = nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
+                       act_layer=act_layer, drop=drop)
     def extra_repr(self) -> str:
         return f"drop_path_prob={self.drop_path_prob}"
 
@@ -564,15 +554,12 @@ class CrossAttnBlock(nn.Module):
             drop_prob = self.drop_path_prob
         return drop_path(x, drop_prob, self.training)
 
-    def forward(self, query, key, *, drop_prob=None):
+    def forward(self, query, key, *, mask=None, drop_prob=None):
         x = query
-        out = self.attn(self.norm_q(query), key=self.norm_k(key))
-        if self.with_attn_skip:
-            x = x + self.drop_path(out, drop_prob=drop_prob)
-        else:
-            x = out
-        if self.with_mlp:
-            x = self.reduction(x) + self.drop_path(self.mlp(self.norm2(x)), drop_prob=drop_prob)
+        x = x + self.drop_path(
+            self.attn(self.norm_q(query), self.norm_k(key), mask=mask),
+            drop_prob=drop_prob)
+        x = x + self.drop_path(self.mlp(self.norm2(x)), drop_prob=drop_prob)
         return x
 
 class AttnBlock(nn.Module):
@@ -634,7 +621,8 @@ class BasicLayer(nn.Module):
                  cluster_weight_proj=None,
                  zero_init_cluster_token=False,
                  cluster_attn_avg=False,
-                 attn_mask_style=['c2c']):
+                 attn_mask_style=['c2c'],
+                 cluster_as_key=True):
 
         super().__init__()
         self.dim = dim
@@ -651,6 +639,7 @@ class BasicLayer(nn.Module):
         self.with_cls_token = with_cls_token
         self.cluster_attn_avg = cluster_attn_avg
         assert len(set(attn_mask_style) - {'c2c'}) == 0
+        self.cluster_as_key = cluster_as_key
 
         if len(attn_mask_style) and num_cluster > 0:
             attn_mask = torch.zeros((1, input_seq_len + num_cluster,
@@ -659,6 +648,7 @@ class BasicLayer(nn.Module):
                 attn_mask[:, -num_cluster:, -num_cluster:] = 1
                 attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(
                     attn_mask == 0, float(0.0))
+                assert cluster_as_key
         else:
             attn_mask = None
 
@@ -670,11 +660,20 @@ class BasicLayer(nn.Module):
 
         # build blocks
         self.depth = depth
-        self.blocks = nn.ModuleList([
-            AttnBlock(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio,
-                      qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop,
-                      attn_drop=attn_drop, drop_path=drop_path[i], norm_layer=norm_layer)
-            for i in range(depth)])
+        if self.cluster_as_key or not self.with_cluster_token:
+            self.blocks = nn.ModuleList([
+                AttnBlock(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio,
+                          qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop,
+                          attn_drop=attn_drop, drop_path=drop_path[i],
+                          norm_layer=norm_layer)
+                for i in range(depth)])
+        else:
+            self.blocks = nn.ModuleList([
+                CrossAttnBlock(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio,
+                          qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop,
+                          attn_drop=attn_drop, drop_path=drop_path[i],
+                          norm_layer=norm_layer)
+                for i in range(depth)])
 
         self.downsample = downsample
         self.input_resolution = input_seq_len
@@ -697,7 +696,19 @@ class BasicLayer(nn.Module):
         return f"dim={self.dim}, \n" \
                f"input_resolution={self.input_resolution}, \n" \
                f"depth={self.depth}, \n" \
-               f"num_cluster={self.num_cluster}" \
+               f"num_cluster={self.num_cluster}, \n" \
+               f"cluster_as_key={self.cluster_as_key}" \
+
+    def split_x(self, x):
+        if self.with_cluster_token:
+            return x[:, :-self.num_cluster], x[:, -self.num_cluster:]
+        else:
+            return x, None
+
+    def concat_x(self, x, cluster_token=None):
+        if cluster_token is None:
+            return x
+        return torch.cat([x, cluster_token], dim=1)
 
     def forward(self, x, prev_cluster_token=None, return_all_x=False):
         """
@@ -720,17 +731,22 @@ class BasicLayer(nn.Module):
             cluster_token = None
 
         B, L, C = x.shape
-        if self.with_cluster_token:
-            x = torch.cat([x, cluster_token], dim=1)
+        cat_x = self.concat_x(x, cluster_token)
         for blk_idx, blk in enumerate(self.blocks):
-            if self.use_checkpoint:
-                x = checkpoint.checkpoint(blk, x, mask=self.attn_mask)
+            if self.cluster_as_key or not self.with_cluster_token:
+                if self.use_checkpoint:
+                    cat_x = checkpoint.checkpoint(blk, cat_x, mask=self.attn_mask)
+                else:
+                    cat_x = blk(cat_x, mask=self.attn_mask)
             else:
-                x = blk(x, mask=self.attn_mask)
+                if self.use_checkpoint:
+                    cat_x = checkpoint.checkpoint(blk, cat_x, x, mask=self.attn_mask)
+                else:
+                    cat_x = blk(cat_x, x, mask=self.attn_mask)
+                x = self.split_x(cat_x)[0]
             if return_all_x:
-                outs.append(x)
-        if self.with_cluster_token:
-            x, cluster_token = x[:, :-self.num_cluster], x[:, -self.num_cluster:]
+                outs.append(self.split_x(cat_x)[0])
+        x, cluster_token = self.split_x(cat_x)
 
         if self.downsample is not None:
             if isinstance(self.downsample, TokenAssign):
@@ -940,7 +956,8 @@ class ClusterViT(nn.Module):
                  gumbel_tau=1.,
                  with_cluster_attn_avg=False,
                  pred_src=['image'],
-                 deep_sup=[]):
+                 deep_sup=[],
+                 cluster_as_key=True):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1118,7 +1135,8 @@ class ClusterViT(nn.Module):
                                cluster_weight_proj=cluster_weight_proj,
                                zero_init_cluster_token=zero_init_cluster_token,
                                cluster_attn_avg=with_cluster_attn_avg,
-                               attn_mask_style=attn_mask_style)
+                               attn_mask_style=attn_mask_style,
+                               cluster_as_key=cluster_as_key)
             self.layers.append(layer)
             if i_layer < self.num_layers -1 :
                 input_seq_len = next_input_seq_len
