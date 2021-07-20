@@ -1,0 +1,18 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+
+MODEL:
+  TYPE: cvit
+  DROP_PATH_RATE: 0.1
+  CVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [5, 1, 6]
+    NUM_CLUSTERS: [0, 64, 0]
+    EMBED_FACTORS: [1, 1, 1]
+    DOWNSAMPLE_TYPES: ['none', 'assign']
+    NUM_ASSIGN: [-1, 8]
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+    INTER_MODE: mixer
+    ASSIGN_TYPE: ['inv']
