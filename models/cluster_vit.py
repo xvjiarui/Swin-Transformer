@@ -654,7 +654,7 @@ class BasicLayer(nn.Module):
 
         self.register_buffer("attn_mask", attn_mask)
 
-        if cluster_attn_avg:
+        if self.with_cluster_token and cluster_attn_avg:
             self.attn_avg = AttentionAvg(dim=dim, qk_bias=qkv_bias,
                                          qk_scale=qk_scale, attn_drop=attn_drop)
 
@@ -1017,8 +1017,10 @@ class ClusterViT(nn.Module):
                 self.pos_embed = nn.Parameter(
                     torch.zeros(1, num_patches, embed_dim))
                 trunc_normal_(self.pos_embed, std=.02)
-            else:
+            elif pos_embed_type == 'fourier':
                 self.pos_embed = PositionalEncodingFourier(dim=embed_dim)
+            else:
+                raise ValueError
         else:
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
             assert pos_embed_type == 'simple'
