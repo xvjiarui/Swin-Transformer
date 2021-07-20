@@ -13,6 +13,6 @@ MODEL:
     DOWNSAMPLE_TYPES: ['assign']
     NUM_ASSIGN: [8]
     WITH_GAP: true
-    ATTN_MASK_STYLE: []
+    ATTN_MASK_STYLE: ['c2c']
     INTER_MODE: mixer
-    ASSIGN_GUMBEL_TAU: 5.
+    PATCH_EMBED_TYPE: stem-BN

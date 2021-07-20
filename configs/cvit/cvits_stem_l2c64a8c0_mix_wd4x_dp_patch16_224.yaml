@@ -15,4 +15,6 @@ MODEL:
     WITH_GAP: true
     ATTN_MASK_STYLE: []
     INTER_MODE: mixer
-    ASSIGN_GUMBEL_TAU: 5.
+    PATCH_EMBED_TYPE: stem-BN
+TRAIN:
+  WEIGHT_DECAY: 0.2
