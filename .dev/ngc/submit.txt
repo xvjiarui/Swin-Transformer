@@ -108,4 +108,8 @@
 #cvits_l3c0c64a8c0_mix_ngh_dp_patch16_224.yaml
 #cvits_stem_l2c64a8c0_mix_ngh_dp_patch16_224.yaml
 #cvits_stem_l2c64a8c0_mix_nghi_dp_patch16_224.yaml
-cvits_l1c128_patch16_224.yaml
+#cvits_l1c128_patch16_224.yaml
+cvit_l2c64a8c0_mix_dp_patch16_224.yaml
+cvit_l2c64a16c0_mix_dp_patch16_224.yaml
+cvit_l2tl8_dp_patch16_224.yaml
+cvit_l2tl16_dp_patch16_224.yaml
