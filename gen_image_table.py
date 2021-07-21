@@ -216,6 +216,7 @@ def parse_args():
         description='Generate image table')
     parser.add_argument('out', help='out put directory')
     parser.add_argument('input', help='input_directory, should under out')
+    parser.add_argument('--row-per-page', '-r', type=int, help='number of rows per page')
     args = parser.parse_args()
     return args
 
@@ -243,7 +244,7 @@ def main():
     image_ids = set(osp.dirname(osp.dirname(f)) for f in files)
     dirs = sorted(list(set(osp.dirname(f) for f in files)))
     files_under_dirs = {d: sorted(list(scandir(osp.join(args.input, d)))) for d in dirs}
-    num_vis_per_img = len(dirs)//len(image_ids)
+    num_vis_per_img = args.row_per_page or len(dirs)//len(image_ids)
     for d in files_under_dirs:
         files_under_dirs[d] = [osp.join(args.input, d, 'img.jpg')] + files_under_dirs[d]
 
