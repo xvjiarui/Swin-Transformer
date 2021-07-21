@@ -116,4 +116,5 @@
 #cvits_rnd_l1c0_dp_patch16_224.yaml
 #cvits_rnd_l2c64a8c0_mix_dp_patch16_224.yaml
 #cvit_rnd_l2c64a8c0_mix_dp_patch16_224.yaml
-cvit_l2c64a8c0_mix_dp_clip1_patch16_224.yaml
+#cvit_l2c64a8c0_mix_dp_clip1_patch16_224.yaml
+cvit_l2c64a8c0_mix_patch16_224.yaml
