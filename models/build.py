@@ -143,7 +143,8 @@ def build_model(config):
                            with_cluster_attn_avg=config.MODEL.CVIT.WITH_CLUSTER_ATTN_AVG,
                            pred_src=config.MODEL.CVIT.PRED_SRC,
                            deep_sup=config.MODEL.CVIT.DEEP_SUP,
-                           cluster_as_key=config.MODEL.CVIT.CLUSTER_AS_KEY)
+                           cluster_as_key=config.MODEL.CVIT.CLUSTER_AS_KEY,
+                           freeze_patch_embed=config.MODEL.CVIT.FREEZE_PATCH_EMBED)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

@@ -957,7 +957,8 @@ class ClusterViT(nn.Module):
                  with_cluster_attn_avg=False,
                  pred_src=['image'],
                  deep_sup=[],
-                 cluster_as_key=True):
+                 cluster_as_key=True,
+                 freeze_patch_embed=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1010,6 +1011,9 @@ class ClusterViT(nn.Module):
         num_patches = self.patch_embed.num_patches
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
+        if freeze_patch_embed:
+            for param in self.patch_embed.parameters():
+                param.requires_grad = False
 
         if self.with_gap:
             self.avgpool = nn.AdaptiveAvgPool1d(1)
