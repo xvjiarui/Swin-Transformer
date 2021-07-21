@@ -2,7 +2,7 @@
 
 MODEL:
   TYPE: cvit
-  DROP_PATH_RATE: 0.1
+  DROP_PATH_RATE: 0.
   CVIT:
     EMBED_DIM: 768
     DIM_PER_HEAD: 64
