@@ -426,7 +426,7 @@ class TokenLearnerMLP(nn.Module):
     def __init__(self, dim, out_dim, out_seq_len,
                  norm_layer,
                  num_mlp=1,
-                 mlp_ratio=4.,
+                 mlp_ratio=1.,
                  with_cls_token=False):
         super(TokenLearnerMLP, self).__init__()
         self.norm = norm_layer(dim)

@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 
 from models import build_model
-from models.cluster_vit import Attention, AssignAttention, attention_pool, TokenLearner
+from models.cluster_vit import Attention, AssignAttention, attention_pool, TokenLearner, TokenLearnerMLP
 from config import _C, _update_config_from_file
 
 PALETTE = [
@@ -190,6 +190,15 @@ def token_learner_hook(name):
 
     return hook
 
+def token_learner_mlp_hook(name):
+    def hook(self, input, output):
+        x = input[0]
+        # [B, L, S1]
+        attn = self.mlps(self.norm(x))
+        attn = self.sigmoid(attn)
+        hidden_outputs[name] = attn
+    return hook
+
 def interpolate_pos_encoding(pos_embed, H, W):
     npatch = H *W
 
@@ -230,6 +239,9 @@ def register_attn_hook(model):
         #     print(f'{module_name} is registered')
         if isinstance(module, TokenLearner):
             module.register_forward_hook(token_learner_hook(module_name))
+            print(f'{module_name} is registered')
+        if isinstance(module, TokenLearnerMLP):
+            module.register_forward_hook(token_learner_mlp_hook(module_name))
             print(f'{module_name} is registered')
 
 

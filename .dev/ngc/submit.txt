@@ -121,6 +121,6 @@
 #cvits_l2c8a8c0_cp_h1_dp_patch16_224.yaml
 #cvits_l2c8a8c0_mix_h1_dp_patch16_224.yaml
 #cvits_l2c64a8c0_mix_h1_dp_patch16_224.yaml
-#cvits_l2tlm8_dp_patch16_224.yaml
-cvits_l2c64a8c0_mix_nghi_h1_dp_patch16_224.yaml
-cvits_l2c8a8c0_mix_nghi_h1_dp_patch16_224.yaml
+#cvits_l2c64a8c0_mix_nghi_h1_dp_patch16_224.yaml
+#cvits_l2c8a8c0_mix_nghi_h1_dp_patch16_224.yaml
+cvits_l2tlm8_dp_patch16_224.yaml
