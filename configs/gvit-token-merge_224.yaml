@@ -1,4 +1,0 @@
-MODEL:
-  TYPE: gvit
-  NAME: gvit_token_merge_224
-  DROP_PATH_RATE: 0.1

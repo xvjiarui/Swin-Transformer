@@ -6,11 +6,11 @@
 # --------------------------------------------------------
 
 from .swin_transformer import SwinTransformer
-from .gvit import GroupingVisionTransformer
 from .vit import VisionTransformer, RecurrentVisionTransformer
 from .mvit import MViT, RecurrentMViT
 from .cmvit import CMViT, RecurrentCMViT
 from .cluster_vit import ClusterViT
+from .group_vit import GroupViT
 
 
 def build_model(config):
@@ -146,6 +146,43 @@ def build_model(config):
                            cluster_as_key=config.MODEL.CVIT.CLUSTER_AS_KEY,
                            freeze_patch_embed=config.MODEL.CVIT.FREEZE_PATCH_EMBED,
                            assign_heads=config.MODEL.CVIT.ASSIGN_HEADS)
+    elif model_type == 'gvit':
+        model = GroupViT(img_size=config.DATA.IMG_SIZE,
+                         patch_size=config.MODEL.GVIT.PATCH_SIZE,
+                         in_chans=config.MODEL.GVIT.IN_CHANS,
+                         num_classes=config.MODEL.NUM_CLASSES,
+                         embed_dim=config.MODEL.GVIT.EMBED_DIM,
+                         embed_factors=config.MODEL.GVIT.EMBED_FACTORS,
+                         depths=config.MODEL.GVIT.DEPTHS,
+                         num_clusters=config.MODEL.GVIT.NUM_CLUSTERS,
+                         downsample_types=config.MODEL.GVIT.DOWNSAMPLE_TYPES,
+                         dim_per_head=config.MODEL.GVIT.DIM_PER_HEAD,
+                         mlp_ratio=config.MODEL.GVIT.MLP_RATIO,
+                         qkv_bias=config.MODEL.GVIT.QKV_BIAS,
+                         qk_scale=config.MODEL.GVIT.QK_SCALE,
+                         drop_rate=config.MODEL.DROP_RATE,
+                         drop_path_rate=config.MODEL.DROP_PATH_RATE,
+                         attn_mask_style=config.MODEL.GVIT.ATTN_MASK_STYLE,
+                         patch_norm=config.MODEL.GVIT.PATCH_NORM,
+                         use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                         assign_type=config.MODEL.GVIT.ASSIGN_TYPE,
+                         num_assign=config.MODEL.GVIT.NUM_ASSIGN,
+                         inter_mode=config.MODEL.GVIT.INTER_MODE,
+                         inter_type=config.MODEL.GVIT.INTER_TYPE,
+                         assign_skip=config.MODEL.GVIT.ASSIGN_SKIP,
+                         with_gap=config.MODEL.GVIT.WITH_GAP,
+                         pos_embed_type=config.MODEL.GVIT.POS_EMBED_TYPE,
+                         cluster_token_wd=config.MODEL.GVIT.CLUSTER_TOKEN_WD,
+                         patch_embed_type=config.MODEL.GVIT.PATCH_EMBED_TYPE,
+                         with_cluster_proj=config.MODEL.GVIT.WITH_CLUSTER_PROJ,
+                         zero_init_cluster_token=config.MODEL.GVIT.ZERO_INIT_CLUSTER_TOKEN,
+                         gumbel_tau=config.MODEL.GVIT.ASSIGN_GUMBEL_TAU,
+                         with_cluster_attn_avg=config.MODEL.GVIT.WITH_CLUSTER_ATTN_AVG,
+                         pred_src=config.MODEL.GVIT.PRED_SRC,
+                         freeze_patch_embed=config.MODEL.GVIT.FREEZE_PATCH_EMBED,
+                         assign_heads=config.MODEL.GVIT.ASSIGN_HEADS,
+                         concat_cluster_token=config.MODEL.GVIT.CONCAT_CLUSTER_TOKEN,
+                         bottleneck_indices=config.MODEL.GVIT.BOTTLENECK_INDICES)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,
@@ -199,22 +236,6 @@ def build_model(config):
                                use_checkpoint=config.TRAIN.USE_CHECKPOINT,
                                with_gap=config.MODEL.RCMVIT.WITH_GAP,
                                with_peg=config.MODEL.RCMVIT.WITH_PEG)
-    elif model_type == 'gvit':
-        model = GroupingVisionTransformer(img_size=config.DATA.IMG_SIZE,
-                                          in_chans=config.MODEL.GVIT.IN_CHANS,
-                                          num_classes=config.MODEL.NUM_CLASSES,
-                                          base_dim=config.MODEL.GVIT.BASE_DIM,
-                                          stage_blocks=config.MODEL.GVIT.STAGE_BLOCKS,
-                                          dim_per_head=config.MODEL.GVIT.DIM_PER_HEAD,
-                                          mlp_ratio=config.MODEL.GVIT.MLP_RATIO,
-                                          qkv_bias=config.MODEL.GVIT.QKV_BIAS,
-                                          qk_scale=config.MODEL.GVIT.QK_SCALE,
-                                          drop_rate=config.MODEL.DROP_RATE,
-                                          drop_path_rate=config.MODEL.DROP_PATH_RATE,
-                                          patch_norm=config.MODEL.GVIT.PATCH_NORM,
-                                          cluster_tokens=config.MODEL.GVIT.CLUSTER_TOKENS,
-                                          downsample_type=config.MODEL.GVIT.DOWNSAMPLE_TYPE,
-                                          use_checkpoint=config.TRAIN.USE_CHECKPOINT)
     else:
         raise NotImplementedError(f"Unkown model: {model_type}")
 
