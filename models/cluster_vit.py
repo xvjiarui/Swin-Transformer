@@ -421,6 +421,39 @@ class TokenLearner(nn.Module):
 
         return x, None
 
+class TokenLearnerMLP(nn.Module):
+
+    def __init__(self, dim, out_dim, out_seq_len,
+                 norm_layer,
+                 num_mlp=1,
+                 mlp_ratio=4.,
+                 with_cls_token=False):
+        super(TokenLearnerMLP, self).__init__()
+        self.norm = norm_layer(dim)
+        mlps = []
+        for i in range(num_mlp):
+            mlps.append(Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio)))
+        mlps.append(nn.Linear(in_features=dim, out_features=out_seq_len))
+        self.mlps = nn.Sequential(*mlps)
+        if out_dim is not None and dim != out_dim:
+            self.reduction = nn.Sequential(
+                norm_layer(dim),
+                nn.Linear(dim, out_dim, bias=False))
+        else:
+            self.reduction = nn.Identity()
+        self.sigmoid = nn.Sigmoid()
+        assert not with_cls_token
+
+    def forward(self, x):
+        # [B, L, S1]
+        attn = self.mlps(self.norm(x))
+        attn = self.sigmoid(attn)
+        # [B, S1, C]
+        x = attn.transpose(1, 2) @ x
+        x = self.reduction(x)
+
+        return x, None
+
 
 
 class Attention(nn.Module):
@@ -978,7 +1011,7 @@ class ClusterViT(nn.Module):
         self.attn_drop_rate = attn_drop_rate
         self.drop_path_rate = drop_path_rate
         self.with_gap = with_gap
-        assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none', 'learner'}) == 0
+        assert len(set(downsample_types) - {'conv', 'unfold', 'assign', 'none', 'learner', 'learner-mlp'}) == 0
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
@@ -1087,6 +1120,13 @@ class ClusterViT(nn.Module):
                                               hw_shape=hw_shape,
                                               with_cls_token=self.with_cls_token,
                                               norm_layer=norm_layer)
+                    next_hw_shape = [-1, -1]
+                    next_input_seq_len = num_assign[i_layer]
+                elif downsample_types[i_layer] == 'learner-mlp':
+                    downsample = TokenLearnerMLP(dim=dim, out_dim=out_dim,
+                                                 out_seq_len=num_assign[i_layer],
+                                                 with_cls_token=self.with_cls_token,
+                                                 norm_layer=norm_layer)
                     next_hw_shape = [-1, -1]
                     next_input_seq_len = num_assign[i_layer]
                 elif downsample_types[i_layer] == 'none':
