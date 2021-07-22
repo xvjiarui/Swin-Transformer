@@ -144,7 +144,8 @@ def build_model(config):
                            pred_src=config.MODEL.CVIT.PRED_SRC,
                            deep_sup=config.MODEL.CVIT.DEEP_SUP,
                            cluster_as_key=config.MODEL.CVIT.CLUSTER_AS_KEY,
-                           freeze_patch_embed=config.MODEL.CVIT.FREEZE_PATCH_EMBED)
+                           freeze_patch_embed=config.MODEL.CVIT.FREEZE_PATCH_EMBED,
+                           assign_heads=config.MODEL.CVIT.ASSIGN_HEADS)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

@@ -251,7 +251,8 @@ class AssignAttention(nn.Module):
         return out
 
     def extra_repr(self) -> str:
-        return f'hard: {self.hard}, \n' \
+        return f'num_heads: {self.num_heads}, \n' \
+               f'hard: {self.hard}, \n' \
                f'inv_attn: {self.inv_attn}, \n' \
                f'gumbel: {self.gumbel}, \n' \
                f'categorical={self.categorical}, \n' \
@@ -958,7 +959,8 @@ class ClusterViT(nn.Module):
                  pred_src=['image'],
                  deep_sup=[],
                  cluster_as_key=True,
-                 freeze_patch_embed=False):
+                 freeze_patch_embed=False,
+                 assign_heads=0):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1063,7 +1065,7 @@ class ClusterViT(nn.Module):
                 elif downsample_types[i_layer] == 'assign':
                     downsample = TokenAssign(dim=dim,
                                              out_dim=out_dim,
-                                             num_heads=dim // dim_per_head,
+                                             num_heads=assign_heads or dim // dim_per_head,
                                              num_cluster=num_clusters[i_layer],
                                              out_seq_len=num_assign[i_layer],
                                              norm_layer=norm_layer,
