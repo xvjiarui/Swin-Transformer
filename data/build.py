@@ -54,7 +54,7 @@ def build_loader(config):
 
         val_nbatches = max(1, VAL_LEN // (config.DATA.BATCH_SIZE * dist.get_world_size()))
         data_loader_val = (
-            data_loader_val.slice(0, VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
+            data_loader_val.slice(dist.get_rank(), VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
                 .with_epoch(val_nbatches)
                 .with_length(val_nbatches)
         )
