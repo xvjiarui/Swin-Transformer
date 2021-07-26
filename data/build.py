@@ -111,7 +111,6 @@ def build_dataset(is_train, config):
                                         cache_mode=config.DATA.CACHE_MODE if is_train else 'part')
         elif config.DATA.WEB_MODE:
             # repeat dataset infinitely for training mode
-            repeat = is_train
             prefix = 'imagenet-train-{000000..001281}.tar' if is_train else 'imagenet-val-{000000..000049}.tar'
             root = os.path.join(config.DATA.DATA_PATH, prefix)
             length = TRAIN_LEN if is_train else VAL_LEN
@@ -121,7 +120,7 @@ def build_dataset(is_train, config):
 
 
             dataset = (
-                wds.WebDataset(root, repeat=repeat)
+                wds.WebDataset(root, repeat=True)
                     .shuffle(shuffle)
                     .decode("pil")
                     .to_tuple("jpg;png;jpeg cls")
