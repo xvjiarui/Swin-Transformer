@@ -126,7 +126,7 @@ def build_dataset(is_train, config):
             )
             # sampler for validation set
             if not is_train:
-                dataset = dataset.slice(dist.get_rank(), VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
+                dataset = dataset.slice(dist.get_rank(), VAL_LEN, dist.get_world_size())
 
             dataset = dataset.with_length(length)
 
