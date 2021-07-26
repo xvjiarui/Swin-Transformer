@@ -243,7 +243,8 @@ def main():
     files = list(sorted(scandir(args.input, suffix='.jpg', recursive=True)))
     image_ids = set(osp.dirname(osp.dirname(f)) for f in files)
     dirs = sorted(list(set(osp.dirname(f) for f in files)))
-    files_under_dirs = {d: sorted(list(scandir(osp.join(args.input, d)))) for d in dirs}
+    # files_under_dirs = {d: sorted(list(scandir(osp.join(args.input, d)))) for d in dirs}
+    files_under_dirs = {d: sorted([f for f in scandir(osp.join(args.input, d)) if 'img' in f or 'bind' in f]) for d in dirs}
     num_vis_per_img = args.row_per_page or len(dirs)//len(image_ids)
     for d in files_under_dirs:
         files_under_dirs[d] = [osp.join(args.input, d, 'img.jpg')] + files_under_dirs[d]

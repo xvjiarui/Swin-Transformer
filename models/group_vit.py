@@ -971,6 +971,7 @@ class GroupViT(nn.Module):
                  embed_factors=[1, 2, 4, 8],
                  depths=[1, 1, 10, 1],
                  dim_per_head=96,
+                 num_heads=(-1, -1, -1, -1),
                  num_clusters=(64, 32, 16, 8),
                  mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
@@ -1001,6 +1002,7 @@ class GroupViT(nn.Module):
         assert patch_size in [4, 16]
         self.num_classes = num_classes
         assert len(embed_factors) == len(depths) == len(num_clusters)
+        assert all(_ == 0 for _ in num_heads) or len(depths) == len(num_heads)
         assert len(depths)-1 == len(downsample_types) == len(num_assign)
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
@@ -1143,7 +1145,7 @@ class GroupViT(nn.Module):
             layer = BasicLayer(dim=dim,
                                input_seq_len=input_seq_len,
                                depth=depths[i_layer],
-                               num_heads=dim // dim_per_head,
+                               num_heads=num_heads[i_layer] or dim // dim_per_head,
                                num_cluster=num_clusters[i_layer],
                                mlp_ratio=self.mlp_ratio,
                                qkv_bias=qkv_bias, qk_scale=qk_scale,

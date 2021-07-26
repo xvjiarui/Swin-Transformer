@@ -24,8 +24,9 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 
 from models import build_model
-from models.cluster_vit import Attention, AssignAttention
+# from models.cluster_vit import Attention, AssignAttention
 from config import _C, _update_config_from_file
+from models.group_vit import Attention, AssignAttention
 
 PALETTE = [
     [0, 0, 0],
@@ -253,7 +254,7 @@ if __name__ == '__main__':
             print(k)
             assert isinstance(k, str)
             i_layer = int(k[k.find('layers')+7])
-            num_cluster_token = cfg.MODEL.CVIT.NUM_CLUSTERS[i_layer]
+            num_cluster_token = cfg.MODEL.GVIT.NUM_CLUSTERS[i_layer]
             if num_cluster_token == 0:
                 continue
 

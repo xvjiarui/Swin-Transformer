@@ -1,0 +1,22 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+# me1bh1: middle 1 extra bottleneck, num heads = 1
+
+MODEL:
+  TYPE: gvit
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [6, 1, 6]
+    NUM_CLUSTERS: [0, 8, 0]
+    EMBED_FACTORS: [1, 1, 1]
+    NUM_HEADS: [0, 1, 0]
+    DOWNSAMPLE_TYPES: ['none', 'assign']
+    NUM_ASSIGN: [-1, 8]
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+    INTER_MODE: copy
+    BOTTLENECK_INDICES: [[], [0], []]
+    CONCAT_CLUSTER_TOKEN: false
+    ASSIGN_HEADS: 1

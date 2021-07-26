@@ -157,6 +157,7 @@ def build_model(config):
                          num_clusters=config.MODEL.GVIT.NUM_CLUSTERS,
                          downsample_types=config.MODEL.GVIT.DOWNSAMPLE_TYPES,
                          dim_per_head=config.MODEL.GVIT.DIM_PER_HEAD,
+                         num_heads=config.MODEL.GVIT.NUM_HEADS,
                          mlp_ratio=config.MODEL.GVIT.MLP_RATIO,
                          qkv_bias=config.MODEL.GVIT.QKV_BIAS,
                          qk_scale=config.MODEL.GVIT.QK_SCALE,
