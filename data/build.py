@@ -54,10 +54,8 @@ def build_loader(config):
 
         val_nbatches = max(1, VAL_LEN // (config.DATA.BATCH_SIZE * dist.get_world_size()))
         data_loader_val = (
-            data_loader_val.slice(dist.get_rank(), VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
-                .with_epoch(val_nbatches)
-                .with_length(val_nbatches)
-        )
+            data_loader_val.with_epoch(val_nbatches)
+                .with_length(val_nbatches))
 
     else:
         if config.DATA.ZIP_MODE and config.DATA.CACHE_MODE == 'part':
@@ -125,8 +123,12 @@ def build_dataset(is_train, config):
                     .decode("pil")
                     .to_tuple("jpg;png;jpeg cls")
                     .map_tuple(transform)
-                    .with_length(length)
             )
+            # sampler for validation set
+            if not is_train:
+                dataset = dataset.slice(dist.get_rank(), VAL_LEN // config.DATA.BATCH_SIZE, dist.get_world_size())
+
+            dataset = dataset.with_length(length)
 
         else:
             root = os.path.join(config.DATA.DATA_PATH, prefix)
