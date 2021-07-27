@@ -12,7 +12,7 @@ MODEL:
     NUM_CLUSTERS: [0, 0]
     EMBED_FACTORS: [1, 1]
     DOWNSAMPLE_TYPES: ['learner']
-    NUM_ASSIGN: [-1]
+    NUM_ASSIGN: [8]
     WITH_GAP: true
     ATTN_MASK_STYLE: []
     INTER_MODE: mixer
