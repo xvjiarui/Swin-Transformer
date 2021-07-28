@@ -1,0 +1,20 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+# ebhalf: BOTTLENECK_INDICES= [[2,5,8,11,14,17]]
+# ncat: CONCAT_CLUSTER_TOKEN=False
+
+MODEL:
+  TYPE: gvit
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [15]
+    NUM_CLUSTERS: [64]
+    EMBED_FACTORS: [1]
+    DOWNSAMPLE_TYPES: []
+    NUM_ASSIGN: []
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+    BOTTLENECK_INDICES: [[]]
+    CONCAT_CLUSTER_TOKEN: true
