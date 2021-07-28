@@ -29,11 +29,26 @@ from config import _C, _update_config_from_file
 
 PALETTE = [
     [0, 0, 0],
-    [120, 120, 120], [180, 120, 120], [6, 230, 230], [80, 50, 50],
-    [4, 200, 3], [120, 120, 80], [140, 140, 140], [204, 5, 255],
-    [230, 230, 230], [4, 250, 7], [224, 5, 255], [235, 255, 7],
-    [150, 5, 61], [120, 120, 70], [8, 255, 51], [255, 6, 82],
-    [143, 255, 140], [204, 255, 4], [255, 51, 7], [204, 70, 3],
+    # [120, 120, 120],
+    # [180, 120, 120],
+    [6, 230, 230],
+    [80, 50, 50],
+    [4, 200, 3],
+    # [120, 120, 80],
+    # [140, 140, 140],
+    [204, 5, 255],
+    # [230, 230, 230],
+    [4, 250, 7],
+    [224, 5, 255],
+    [235, 255, 7],
+    # [150, 5, 61],
+    # [120, 120, 70],
+    [8, 255, 51],
+    [255, 6, 82],
+    [143, 255, 140],
+    [204, 255, 4],
+    [255, 51, 7],
+    [204, 70, 3],
     [0, 102, 200], [61, 230, 250], [255, 6, 51], [11, 102, 255],
     [255, 7, 71], [255, 9, 224], [9, 7, 230], [220, 220, 220],
     [255, 9, 92], [112, 9, 255], [8, 255, 214], [7, 255, 224],
@@ -290,7 +305,7 @@ if __name__ == '__main__':
         std=[1 / 0.229, 1 / 0.224, 1 / 0.255]
     )
     dataset = datasets.ImageFolder(args.data_path, transform=transform)
-    seed = 1
+    seed = 3
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -389,7 +404,7 @@ if __name__ == '__main__':
             os.makedirs(output_dir, exist_ok=True)
             # torchvision.utils.save_image(torchvision.utils.make_grid(img, normalize=True, scale_each=True), os.path.join(output_dir, "img.jpg"))
             palette = np.array(PALETTE)
-            opacity = 0.5
+            opacity = 0.7
             cv2.imwrite(os.path.join(output_dir, "img.jpg"),
                         ori_image[..., ::-1])
             for j in range(nh):
@@ -405,10 +420,10 @@ if __name__ == '__main__':
                 # plt.imsave(fname=fname, arr=bind_img, format='jpg')
                 cv2.imwrite(fname, bind_img[..., ::-1])
                 print(f"{fname} saved.")
-                fname = os.path.join(output_dir, f"attn-head{j}_seg.jpg")
-                # plt.imsave(fname=fname, arr=color_seg, format='jpg')
-                cv2.imwrite(fname, color_seg[..., ::-1])
-                print(f"{fname} saved.")
+                # fname = os.path.join(output_dir, f"attn-head{j}_seg.jpg")
+                # # plt.imsave(fname=fname, arr=color_seg, format='jpg')
+                # cv2.imwrite(fname, color_seg[..., ::-1])
+                # print(f"{fname} saved.")
             for c in range(num_token_leaners):
                 fname = os.path.join(output_dir, "attn-act" + str(c) + ".jpg")
                 plt.imsave(fname=fname, arr=resize_attentions[0, :, :, c].cpu().numpy(), format='png')

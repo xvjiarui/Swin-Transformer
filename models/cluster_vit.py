@@ -783,6 +783,7 @@ class BasicLayer(nn.Module):
         x, cluster_token = self.split_x(cat_x)
 
         if self.downsample is not None:
+            # self.downsample.hw_shape = self.hw_shape
             if isinstance(self.downsample, TokenAssign):
                 x, hw_shape = self.downsample(x, cluster_token)
             else:
@@ -1253,6 +1254,7 @@ class ClusterViT(nn.Module):
 
         cluster_token = None
         for layer in self.layers:
+            # layer.hw_shape = hw_shape
             x, cluster_token = layer(x, cluster_token)
 
         out = None
