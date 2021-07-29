@@ -17,6 +17,29 @@ except ImportError:
     amp = None
 
 
+def load_pretrained(config, model, ckpt_path, logger):
+    state_dict = torch.load(ckpt_path, map_location='cpu')['model']
+
+    if config.MODEL.REMOVE_PRETRAINED_HEAD:
+        popping_prefix = ['head', 'norm']
+        popping_keys = []
+        for k in state_dict.keys():
+            for prefix in popping_prefix:
+                if k.startswith(prefix):
+                    popping_keys.append(k)
+        for k in popping_keys:
+            state_dict.pop(k)
+
+        logger.info(f'Popping {popping_keys} from state dict')
+
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict,
+                                                          strict=False)
+    logger.info(f'loaded pretrained checkpoint from: {ckpt_path}')
+    if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+        logger.warning(
+            f'Missing keys: {missing_keys}\nUnexpected keys: {unexpected_keys}')
+
+
 def load_checkpoint(config, model, optimizer, lr_scheduler, loss_scaler, logger):
     logger.info(f"==============> Resuming form {config.MODEL.RESUME}....................")
     if config.MODEL.RESUME.startswith('https'):

@@ -54,6 +54,9 @@ _C.MODEL.TYPE = ''
 _C.MODEL.NAME = ''
 # Checkpoint to resume, could be overwritten by command line argument
 _C.MODEL.RESUME = ''
+# pretrained Checkpoint, could be overwritten by command line argument
+_C.MODEL.PRETRAINED = ''
+_C.MODEL.REMOVE_PRETRAINED_HEAD = False
 # Number of classes, overwritten in data preparation
 _C.MODEL.NUM_CLASSES = 1000
 # Dropout rate
@@ -249,6 +252,7 @@ _C.MODEL.GVIT.FREEZE_PATCH_EMBED = False
 _C.MODEL.GVIT.ASSIGN_HEADS = 0
 _C.MODEL.GVIT.BOTTLENECK_INDICES = [[], [], [], []]
 _C.MODEL.GVIT.CONCAT_CLUSTER_TOKEN = True
+_C.MODEL.GVIT.FROZEN_STAGES = -1
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()
@@ -408,6 +412,8 @@ def update_config(config, args):
         config.DATA.CACHE_MODE = args.cache_mode
     if args.resume:
         config.MODEL.RESUME = args.resume
+    if args.pretrained:
+        config.MODEL.PRETRAINED = args.pretrained
     if args.accumulation_steps:
         config.TRAIN.ACCUMULATION_STEPS = args.accumulation_steps
     if args.use_checkpoint:

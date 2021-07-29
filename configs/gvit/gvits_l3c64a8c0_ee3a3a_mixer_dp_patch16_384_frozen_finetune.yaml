@@ -1,0 +1,30 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+# ee3b: end extra 3 attention bottleneck
+
+MODEL:
+  TYPE: gvit
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [12, 3, 3]
+    NUM_CLUSTERS: [0, 64, 0]
+    EMBED_FACTORS: [1, 1, 1]
+    DOWNSAMPLE_TYPES: ['none', 'assign']
+    NUM_ASSIGN: [-1, 8]
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+    INTER_MODE: mixer
+    BOTTLENECK_INDICES: [[], [], []]
+    FROZEN_STAGES: 0
+  PRETRAINED: output/gvits_l1c0_dp_patch16_224_bs256x16/fp16/ckpt_epoch_299.pth
+  REMOVE_PRETRAINED_HEAD: True
+DATA:
+  IMG_SIZE: 384
+TRAIN:
+#  BASE_LR: 5e-6
+#  MIN_LR: 5e-6
+#  WEIGHT_DECAY: 1e-8
+  EPOCHS: 30
+  WARMUP_EPOCHS: 5

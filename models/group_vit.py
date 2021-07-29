@@ -13,6 +13,7 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import to_2tuple, trunc_normal_, DropPath
 from einops import rearrange
 from einops.layers.torch import Rearrange
+from collections import OrderedDict
 
 
 class Mlp(nn.Module):
@@ -997,7 +998,8 @@ class GroupViT(nn.Module):
                  freeze_patch_embed=False,
                  assign_heads=0,
                  concat_cluster_token=True,
-                 bottleneck_indices=[[], [], [], []]):
+                 bottleneck_indices=[[], [], [], []],
+                 frozen_stages=-1):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1029,6 +1031,7 @@ class GroupViT(nn.Module):
         assert len(pred_src) > 0
         self.pred_src = pred_src
         assert all(len(_)==0 for _ in bottleneck_indices) or len(depths) == len(bottleneck_indices)
+        self.frozen_stages = frozen_stages
 
         if patch_embed_type == 'simple':
             if patch_size == 16:
@@ -1167,6 +1170,8 @@ class GroupViT(nn.Module):
                 input_seq_len = next_input_seq_len
                 hw_shape = next_hw_shape
 
+        self._freeze_stages()
+
         if 'image' in pred_src:
             self.norm = norm_layer(self.num_features)
             self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
@@ -1178,6 +1183,49 @@ class GroupViT(nn.Module):
         if self.with_cls_token:
             trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
+
+    def _freeze_stages(self):
+        """Freeze stages param and norm stats."""
+        if self.frozen_stages >= 0:
+            for param in self.patch_embed.parameters():
+                param.requires_grad = False
+            if self.pos_embed_type == 'simple':
+                self.pos_embed.requires_grad = False
+            else:
+                for param in self.pos_embed.parameters():
+                    param.requires_grad = False
+            for i, m in enumerate(self.layers):
+                if i <= self.frozen_stages:
+                    for name, param in m.named_parameters():
+                        param.requires_grad = False
+
+    def load_state_dict(self, state_dict: 'OrderedDict[str, torch.Tensor]',
+                        strict: bool = True):
+        if self.pos_embed_type == 'simple' and 'pos_embed' in state_dict:
+            if self.with_cls_token:
+                load_pos_embed = state_dict['pos_embed'][:, 1:]
+            else:
+                load_pos_embed = state_dict['pos_embed']
+            if self.with_cls_token:
+                pos_embed = self.pos_embed[:, 1:]
+            else:
+                pos_embed = self.pos_embed
+            if load_pos_embed.shape != pos_embed.shape:
+                H_new = int(self.patch_embed.num_patches ** 0.5)
+                W_new = H_new
+                H_ori = int(load_pos_embed.shape[1] ** 0.5)
+                W_ori = H_ori
+                load_pos_embed = F.interpolate(
+                    rearrange(load_pos_embed, 'b (h w) c -> b c h w', h=H_ori,
+                              w=W_ori, b=1),
+                    size=(H_new, W_new), mode='bicubic', align_corners=False)
+                load_pos_embed= rearrange(load_pos_embed, 'b c h w -> b (h w) c', h=H_new, w=W_new)
+                if self.with_cls_token:
+                    load_pos_embed = torch.cat((state_dict['pos_embed'][:, :1], load_pos_embed),
+                                          dim=1)
+
+                state_dict['pos_embed'] = load_pos_embed
+        return super().load_state_dict(state_dict, strict)
 
     @property
     def with_cls_token(self):

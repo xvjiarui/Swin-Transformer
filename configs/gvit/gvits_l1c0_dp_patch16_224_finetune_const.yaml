@@ -1,0 +1,26 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+# bhalf: BOTTLENECK_INDICES= [[1,3,5,7,9,11]]
+
+MODEL:
+  TYPE: gvit
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [12]
+    NUM_CLUSTERS: [0]
+    EMBED_FACTORS: [1]
+    DOWNSAMPLE_TYPES: []
+    NUM_ASSIGN: []
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+  PRETRAINED: output/gvits_l1c0_dp_patch16_224_bs256x16/fp16/ckpt_epoch_299.pth
+DATA:
+  IMG_SIZE: 224
+TRAIN:
+  BASE_LR: 5e-6
+  MIN_LR: 5e-6
+  WEIGHT_DECAY: 1e-8
+  EPOCHS: 30
+  WARMUP_EPOCHS: 5

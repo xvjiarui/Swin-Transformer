@@ -27,7 +27,8 @@ from data import build_loader
 from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
-from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
+from utils import (load_checkpoint, save_checkpoint, get_grad_norm,
+                   auto_resume_helper, reduce_tensor, load_pretrained)
 from env import collect_env, get_git_hash, increase_l2_cache
 from losses import DistillationLoss, MultiPredLoss
 from amp_utils import NativeScaler
@@ -60,6 +61,7 @@ def parse_option():
                              'full: cache all data, '
                              'part: sharding the dataset into nonoverlapping pieces and only cache one piece')
     parser.add_argument('--resume', help='resume from checkpoint')
+    parser.add_argument('--pretrained', help='load from pretrained checkpoint')
     parser.add_argument('--accumulation-steps', type=int, help="gradient accumulation steps")
     parser.add_argument('--use-checkpoint', action='store_true',
                         help="whether to use gradient checkpointing to save memory")
@@ -110,6 +112,10 @@ def main(config):
         loss_scaler = None
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config.LOCAL_RANK], broadcast_buffers=False)
     model_without_ddp = model.module
+
+    # load pre-trained model
+    if config.MODEL.PRETRAINED:
+        load_pretrained(config, model_without_ddp, config.MODEL.PRETRAINED, logger)
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"number of params: {n_parameters}")
