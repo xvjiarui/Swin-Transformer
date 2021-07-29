@@ -167,7 +167,8 @@ def gumbel_softmax(logits: torch.Tensor, tau: float = 1, hard: bool = False, dim
 class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., hard=True, inv_attn=True,
-                 gumbel=False, categorical=False, gumbel_tau=1.):
+                 gumbel=False, categorical=False, gumbel_tau=1., sigmoid=False,
+                 sum_assign=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -187,8 +188,12 @@ class AssignAttention(nn.Module):
         if categorical:
             assert hard
         self.gumbel_tau = gumbel_tau
+        self.sigmoid = sigmoid
+        self.sum_assign = sum_assign
 
     def get_attn(self, attn):
+        if self.sigmoid:
+            return F.sigmoid(attn)
         if self.inv_attn:
             attn_dim = -2
         else:
@@ -205,9 +210,9 @@ class AssignAttention(nn.Module):
             else:
                 attn = F.softmax(attn, dim=attn_dim)
 
-        if self.inv_attn:
+        if self.inv_attn and not self.sum_assign:
             attn = attn / (attn.sum(dim=-1, keepdim=True) + 1)
-        #
+
         return attn
 
     def forward(self, query, key=None, *, value=None, attn_weight=None):
@@ -251,6 +256,8 @@ class AssignAttention(nn.Module):
                f'inv_attn: {self.inv_attn}, \n' \
                f'gumbel: {self.gumbel}, \n' \
                f'categorical={self.categorical}, \n' \
+               f'sigmoid={self.sigmoid}, \n' \
+               f'sum_assign={self.sum_assign}, \n' \
                f'gumbel_tau: {self.gumbel_tau}'
 
 class TokenAssign(nn.Module):
@@ -258,7 +265,10 @@ class TokenAssign(nn.Module):
     def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
-                 categorical=False, inter_mode='attn',
+                 categorical=False,
+                 sigmoid=False,
+                 sum_assign=False,
+                 inter_mode='attn',
                  assign_skip=True, gumbel_tau=1.,
                  inter_hard=False, inter_gumbel=False):
         super(TokenAssign, self).__init__()
@@ -266,6 +276,8 @@ class TokenAssign(nn.Module):
         self.inv_attn = inv_attn
         self.gumbel = gumbel
         self.categorical = categorical
+        self.sigmoid = sigmoid
+        self.sum_assign = sum_assign
         assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
         self.inter_mode = inter_mode
         self.inter_hard = inter_hard
@@ -293,7 +305,9 @@ class TokenAssign(nn.Module):
                                       qkv_bias=True, hard=hard,
                                       inv_attn=inv_attn, gumbel=gumbel,
                                       categorical=categorical,
-                                      gumbel_tau=gumbel_tau)
+                                      gumbel_tau=gumbel_tau,
+                                      sigmoid=sigmoid,
+                                      sum_assign=sum_assign)
         self.norm_new_x = norm_layer(dim)
         self.mlp_channels = Mlp(dim, channels_dim, out_dim)
         if out_dim is not None and dim != out_dim:
@@ -309,6 +323,8 @@ class TokenAssign(nn.Module):
                f'inv_attn={self.inv_attn}, \n' \
                f'gumbel={self.gumbel}, \n' \
                f'categorical={self.categorical}, \n' \
+               f'sigmoid={self.sigmoid}, \n' \
+               f'sum_assign={self.sum_assign}, \n' \
                f'out_seq_len={self.out_seq_len}, \n ' \
                f'assign_skip={self.assign_skip}'
 
@@ -1022,7 +1038,7 @@ class GroupViT(nn.Module):
         self.num_clusters = num_clusters
         self.pos_embed_type = pos_embed_type
         assert inter_mode in ['attn', 'linear', 'copy', 'mixer']
-        assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel'}) == 0
+        assert len(set(assign_type) - {'categorical', 'hard', 'inv', 'gumbel', 'sigmoid', 'sum_assign'}) == 0
         assert len(set(inter_type) - {'hard', 'gumbel'}) == 0
         assert pos_embed_type in ['simple', 'fourier']
         self.cluster_token_wd = cluster_token_wd
@@ -1113,6 +1129,8 @@ class GroupViT(nn.Module):
                                              inv_attn='inv' in assign_type,
                                              gumbel='gumbel' in assign_type,
                                              categorical='categorical' in assign_type,
+                                             sigmoid='sigmoid' in assign_type,
+                                             sum_assign='sum_assign' in assign_type,
                                              inter_mode=inter_mode,
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
