@@ -9,7 +9,7 @@ MODEL:
     DIM_PER_HEAD: 64
     PATCH_SIZE: 16
     DEPTHS: [12, 3, 3]
-    NUM_CLUSTERS: [0, 64, 0]
+    NUM_CLUSTERS: [0, 0, 0]
     EMBED_FACTORS: [1, 1, 1]
     DOWNSAMPLE_TYPES: ['none', 'learner']
     NUM_ASSIGN: [-1, 8]
