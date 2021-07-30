@@ -138,7 +138,7 @@ def submit(config, args, rest):
     if args.wandb:
         py_args += " --wandb "
         # ngc_cmd_list.append(f'pip install wandb && wandb login {WANDB_KEY}')
-        ngc_cmd_list.append(f'pip install wandb')
+        ngc_cmd_list.append(f'pip install wandb==0.11.0')
 
     ngc_arg_dict['name'] = f'ml-model.vit-jx.{base_config}_bs{batch_size}x{args.gpus}'
     ngc_arg_dict['image'] = "nvcr.io/nvidian/lpr/swin:latest"

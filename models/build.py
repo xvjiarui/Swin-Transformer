@@ -184,7 +184,8 @@ def build_model(config):
                          assign_heads=config.MODEL.GVIT.ASSIGN_HEADS,
                          concat_cluster_token=config.MODEL.GVIT.CONCAT_CLUSTER_TOKEN,
                          bottleneck_indices=config.MODEL.GVIT.BOTTLENECK_INDICES,
-                         frozen_stages=config.MODEL.GVIT.FROZEN_STAGES)
+                         frozen_stages=config.MODEL.GVIT.FROZEN_STAGES,
+                         orthogonal_loss=config.MODEL.GVIT.ORTHOGONAL_LOSS)
     elif model_type == 'rvit':
         model = RecurrentVisionTransformer(img_size=config.DATA.IMG_SIZE,
                                            patch_size=config.MODEL.RVIT.PATCH_SIZE,

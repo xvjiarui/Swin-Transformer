@@ -140,7 +140,9 @@ def main(config):
                                      tau=config.MODEL.SELF_DIST_TAU)
 
     if len(config.MODEL.MULTI_PRED_WEIGHT):
-        criterion = MultiPredLoss(criterion, weight=config.MODEL.MULTI_PRED_WEIGHT)
+        criterion = MultiPredLoss(criterion,
+                                  weight=config.MODEL.MULTI_PRED_WEIGHT,
+                                  loss_indices=config.MODEL.MULTI_PRED_LOSS_INDICES)
 
     max_accuracy = 0.0
 

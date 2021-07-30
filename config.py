@@ -74,6 +74,7 @@ _C.MODEL.SELF_DIST_TAU = 1.
 
 # Multi task loss is enabled when length > 0
 _C.MODEL.MULTI_PRED_WEIGHT= []
+_C.MODEL.MULTI_PRED_LOSS_INDICES= []
 
 # Swin Transformer parameters
 _C.MODEL.SWIN = CN()
@@ -253,6 +254,7 @@ _C.MODEL.GVIT.ASSIGN_HEADS = 0
 _C.MODEL.GVIT.BOTTLENECK_INDICES = [[], [], [], []]
 _C.MODEL.GVIT.CONCAT_CLUSTER_TOKEN = True
 _C.MODEL.GVIT.FROZEN_STAGES = -1
+_C.MODEL.GVIT.ORTHOGONAL_LOSS = False
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()

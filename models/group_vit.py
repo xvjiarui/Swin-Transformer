@@ -5,13 +5,15 @@
 # Written by Ze Liu
 # --------------------------------------------------------
 
+from collections import defaultdict
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import to_2tuple, trunc_normal_, DropPath
-from einops import rearrange
+from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from collections import OrderedDict
 
@@ -755,11 +757,12 @@ class BasicLayer(nn.Module):
             return x
         return torch.cat([x, cluster_token], dim=1)
 
-    def forward(self, x, prev_cluster_token=None):
+    def forward(self, x, prev_cluster_token=None, *, return_all_cluster=False):
         """
         Args:
             x (torch.Tensor): image tokens, [B, L, C]
             prev_cluster_token (torch.Tensor): cluster tokens, [B, S_1, C]
+            return_all_cluster (bool): whether return all clusters in a dict
         """
         if self.with_cluster_token:
             cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
@@ -774,6 +777,8 @@ class BasicLayer(nn.Module):
             cluster_token = None
 
         B, L, C = x.shape
+        aux_dict = {}
+        all_cluster_tokens = []
         if self.concat_cluster_token:
             cat_x = self.concat_x(x, cluster_token)
             for blk_idx, blk in enumerate(self.blocks):
@@ -782,6 +787,8 @@ class BasicLayer(nn.Module):
                         cat_x = checkpoint.checkpoint(blk, cat_x, mask=self.attn_mask)
                     else:
                         cat_x = blk(cat_x, mask=self.attn_mask)
+                    if self.with_cluster_token and return_all_cluster:
+                        all_cluster_tokens.append(self.split_x(cat_x)[1])
                 if isinstance(blk, BottleneckAttnBlock):
                     x, cluster_token = self.split_x(cat_x)
                     if self.use_checkpoint:
@@ -789,6 +796,8 @@ class BasicLayer(nn.Module):
                     else:
                         x, cluster_token = blk(x, cluster_token)
                     cat_x = self.concat_x(x, cluster_token)
+                    if self.with_cluster_token and return_all_cluster:
+                        all_cluster_tokens.append(cluster_token)
 
             x, cluster_token = self.split_x(cat_x)
         else:
@@ -810,8 +819,15 @@ class BasicLayer(nn.Module):
                 x, hw_shape = self.downsample(x, cluster_token)
             else:
                 x, hw_shape = self.downsample(x)
+        ret_list = [x, cluster_token]
 
-        return x, cluster_token
+        if return_all_cluster:
+            aux_dict['all_cluster_tokens'] = all_cluster_tokens
+
+        if len(aux_dict):
+            ret_list.append(aux_dict)
+
+        return tuple(ret_list)
 
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
@@ -1015,7 +1031,8 @@ class GroupViT(nn.Module):
                  assign_heads=0,
                  concat_cluster_token=True,
                  bottleneck_indices=[[], [], [], []],
-                 frozen_stages=-1):
+                 frozen_stages=-1,
+                 orthogonal_loss=False):
         super().__init__()
         assert patch_size in [4, 16]
         self.num_classes = num_classes
@@ -1048,6 +1065,7 @@ class GroupViT(nn.Module):
         self.pred_src = pred_src
         assert all(len(_)==0 for _ in bottleneck_indices) or len(depths) == len(bottleneck_indices)
         self.frozen_stages = frozen_stages
+        self.orthogonal_loss = orthogonal_loss
 
         if patch_embed_type == 'simple':
             if patch_size == 16:
@@ -1284,6 +1302,7 @@ class GroupViT(nn.Module):
             return self.pos_embed(B, H, W)
 
     def forward_features(self, x):
+        aux_dict = defaultdict(list)
         B = x.shape[0]
         x, hw_shape = self.patch_embed(x)
 
@@ -1296,9 +1315,14 @@ class GroupViT(nn.Module):
 
         cluster_token = None
         for layer in self.layers:
-            x, cluster_token = layer(x, cluster_token)
+            if self.orthogonal_loss:
+                x, cluster_token, _aux_dict = layer(x, cluster_token, return_all_cluster=True)
+                for k in _aux_dict:
+                    aux_dict[k].extend(_aux_dict[k])
+            else:
+                x, cluster_token = layer(x, cluster_token)
 
-        return x, cluster_token
+        return x, cluster_token, aux_dict
 
     def forward_image_head(self, x):
         # [B, L, C]
@@ -1321,12 +1345,22 @@ class GroupViT(nn.Module):
         return cluster_token
 
     def forward(self, x):
-        x, cluster_token = self.forward_features(x)
+        x, cluster_token, aux_dict = self.forward_features(x)
         outs = []
         if self.with_image_pred:
             outs.append(self.forward_image_head(x))
         if self.with_cluster_pred:
             outs.append(self.forward_cluster_head(cluster_token))
+        if self.orthogonal_loss:
+            orthogonal_loss = 0
+            for ct in aux_dict['all_cluster_tokens']:
+                ct = F.normalize(ct, dim=-1)
+                loss = torch.mean(
+                    ct @ rearrange(ct, 'b n c -> b c n') - torch.eye(
+                        ct.shape[1], device=ct.device,
+                        dtype=ct.dtype).unsqueeze(0))
+                orthogonal_loss += loss
+            outs.append(orthogonal_loss)
         if len(outs) == 1:
             return outs[0]
         return outs

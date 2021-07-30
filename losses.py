@@ -64,10 +64,12 @@ class DistillationLoss(torch.nn.Module):
 
 class MultiPredLoss(nn.Module):
 
-    def __init__(self, loss, weight):
+    def __init__(self, loss, weight, loss_indices=[]):
         super(MultiPredLoss, self).__init__()
         self.loss = loss
         self.weight = weight
+        # these items are losses themselves
+        self.loss_indices = loss_indices
 
     @property
     def num_losses(self):
@@ -78,6 +80,9 @@ class MultiPredLoss(nn.Module):
         assert len(preds) == self.num_losses
         loss = 0
         for i in range(self.num_losses):
-            loss += self.weight[i] * self.loss(preds[i], target)
+            if i in self.loss_indices:
+                loss += self.weight[i] * preds[i]
+            else:
+                loss += self.weight[i] * self.loss(preds[i], target)
 
         return loss
