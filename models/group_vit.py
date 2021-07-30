@@ -1351,7 +1351,7 @@ class GroupViT(nn.Module):
             outs.append(self.forward_image_head(x))
         if self.with_cluster_pred:
             outs.append(self.forward_cluster_head(cluster_token))
-        if not self.training and self.orthogonal_loss:
+        if self.training and self.orthogonal_loss:
             orthogonal_loss = 0
             for ct in aux_dict['all_cluster_tokens']:
                 ct = F.normalize(ct, dim=-1)
