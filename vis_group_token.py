@@ -196,6 +196,25 @@ def register_attn_hook(model):
             print(f'{module_name} is registered')
 
 
+class ConstantDataset(datasets.ImageFolder):
+
+    def __getitem__(self, index: int):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (sample, target) where target is class_index of the target class.
+        """
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        sample = sample.mean(dim=(1, 2), keepdims=True).expand_as(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return sample, target
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Visualize Self-Attention maps')
@@ -241,6 +260,7 @@ if __name__ == '__main__':
         std=[1 / 0.229, 1 / 0.224, 1 / 0.255]
     )
     dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    # dataset = ConstantDataset(args.data_path, transform=transform)
     seed = 3
     random.seed(seed)
     np.random.seed(seed)

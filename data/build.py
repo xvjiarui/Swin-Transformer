@@ -20,6 +20,8 @@ from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
 
 TRAIN_LEN = 1281167
+# ImageNet-21k
+# TRAIN_LEN = 14197122
 VAL_LEN = 50000
 
 def build_loader(config):
@@ -135,6 +137,8 @@ def build_dataset(is_train, config):
             root = os.path.join(config.DATA.DATA_PATH, prefix)
             dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
+        # ImageNet-21k
+        # nb_classes = 21841
     else:
         raise NotImplementedError("We only support ImageNet Now.")
 

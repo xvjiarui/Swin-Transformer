@@ -59,6 +59,8 @@ _C.MODEL.PRETRAINED = ''
 _C.MODEL.REMOVE_PRETRAINED_HEAD = False
 # Number of classes, overwritten in data preparation
 _C.MODEL.NUM_CLASSES = 1000
+# Number of classes of ImageNet-21k
+# _C.MODEL.NUM_CLASSES = 21841
 # Dropout rate
 _C.MODEL.DROP_RATE = 0.0
 # Drop path rate
