@@ -28,7 +28,7 @@ from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
 from utils import (load_checkpoint, save_checkpoint, get_grad_norm,
-                   auto_resume_helper, reduce_tensor, load_pretrained)
+                   auto_resume_helper, reduce_tensor, load_pretrained, sync_files)
 from env import collect_env, get_git_hash, increase_l2_cache
 from losses import DistillationLoss, MultiPredLoss
 from amp_utils import NativeScaler
@@ -75,6 +75,8 @@ def parse_option():
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
     parser.add_argument('--wandb', action='store_true', help='Use W&B to log experiments')
     parser.add_argument('--keep', type=int, help='Maximum checkpoint to keep')
+    parser.add_argument('--upload_s3', action='store_true', help='Upload checkpoint to S3')
+    parser.add_argument('--upload_gdrive', action='store_true', help='Upload checkpoint to gdrive via rclone')
 
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
@@ -94,6 +96,8 @@ def main(config):
                    tags=[config.MODEL.TYPE])
     else:
         wandb = None
+    # waiting wandb init
+    dist.barrier()
     dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
 
     logger.info(f"Creating model:{config.MODEL.TYPE}/{config.MODEL.NAME}")
@@ -178,6 +182,8 @@ def main(config):
         loss_train = train_one_epoch(config, model, criterion, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler, loss_scaler)
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, loss_scaler, logger)
+            sync_files(config, logger, blocking=False)
+        dist.barrier()
         logger.info(f"Avg loss of the network on the {len(dataset_train)} train images: {loss_train:.2f}")
 
         acc1, acc5, loss = validate(config, data_loader_val, model)
@@ -185,6 +191,7 @@ def main(config):
         if dist.get_rank() == 0 and acc1 > max_accuracy:
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, loss_scaler, logger,
                             suffix='best_acc1')
+        dist.barrier()
         max_accuracy = max(max_accuracy, acc1)
         logger.info(f'Max accuracy: {max_accuracy:.2f}%')
         if wandb is not None:
@@ -200,6 +207,9 @@ def main(config):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info('Training time {}'.format(total_time_str))
+
+    sync_files(config, logger, blocking=True)
+    dist.barrier()
 
 
 def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mixup_fn, lr_scheduler, loss_scaler):
@@ -441,3 +451,4 @@ if __name__ == '__main__':
     logger.info(config.dump())
 
     main(config)
+    torch.distributed.barrier()

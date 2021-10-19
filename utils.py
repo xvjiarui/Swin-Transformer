@@ -135,3 +135,49 @@ def reduce_tensor(tensor):
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     rt /= dist.get_world_size()
     return rt
+
+def sync_s3(src_path, dst_path, logger, bucket='xvjiarui'):
+    status = True
+    if dist.get_rank() == 0:
+        try:
+            ret_code = subprocess.call( f'aws s3 sync {src_path} s3://{bucket}/{dst_path} --delete --exclude "*wandb/*" --quiet', shell=True)
+            if ret_code < 0:
+                logger.error(f'Child was terminated by signal {ret_code}')
+                status = False
+            else:
+                logger.info(f'Child returned {ret_code}')
+        except Exception as e:
+            logger.error(f'Execution failed with {e}')
+            status = False
+
+    return status
+
+def sync_gdrive(src_path, dst_path, logger, bucket='ucsd'):
+    status = True
+    if dist.get_rank() == 0:
+        try:
+            ret_code = subprocess.call( f'rclone sync {src_path} {bucket}:exps/{dst_path} --exclude "**wandb/**" --quiet -c', shell=True)
+            if ret_code < 0:
+                logger.error(f'Child was terminated by signal {ret_code}')
+                status = False
+            else:
+                logger.info(f'Child returned {ret_code}')
+        except Exception as e:
+            logger.error(f'Execution failed with {e}')
+            status = False
+
+    return status
+
+def sync_files(config, logger, blocking=False):
+    if dist.get_rank() == 0:
+        if config.UPLOAD_S3:
+            logger.info(f"Syncing to s3{config.OUTPUT} to {config.UPLOAD_DIR}")
+            status = sync_s3(config.OUTPUT, config.UPLOAD_DIR, logger)
+            logger.info(f'Syncing s3 status: {status}')
+        if config.UPLOAD_GDRIVE:
+            logger.info(f"Syncing to gdrive {config.OUTPUT} to {config.UPLOAD_DIR}")
+            status = sync_gdrive(config.OUTPUT, config.UPLOAD_DIR, logger)
+            logger.info(f'Syncing gdrive status: {status}')
+
+    if blocking:
+        dist.barrier()

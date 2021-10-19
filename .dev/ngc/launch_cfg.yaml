@@ -1,0 +1,32 @@
+JOB_CFGS:
+  - NGC_BATCH:
+      NAME: "{config}.ml-model.vit-jx"
+      IMAGE: "nvcr.io/nvidian/lpr/vl:latest"
+      WORKSPACE: "lpr-jiarui:/work_dirs:RW"
+      RESULT: "/result"
+      NETWORK: ETHERNET
+      LIMIT: 14d
+      INSTANCE: dgx1v.32g.8.norm
+      REPLICAS: 2
+      DATASETS:
+        - "imagenet:/job_data_imagenet"
+    PRE_LAUNCH:
+#      - "git clone -b main https://xvjiarui:\\${GITHUB_TOKEN}@github.com/xvjiarui/Transformer-VL.git && cd Transformer-VL"
+      - "git clone -b master https://xvjiarui:\\${BITBUCKET_PWD}@bitbucket.org/nvlabs/videotransformer2021.git Transformer-CLS && cd Transformer-CLS"
+      - "mkdir -p /work_dirs/swin && ln -s /work_dirs/swin output"
+      - "pip install wandb==0.12.1"
+    POST_LAUNCH:
+      - "aws s3 sync /result s3://xvjiarui/vl/ngc_logs/\\${NGC_JOB_ID}_\\${NGC_ARRAY_INDEX} --quiet"
+    LAUNCH:
+      TEMPLATES:
+        - "{script} {config} {num_node} {gpus} --data-path /job_data_imagenet --web --upload_s3 {py_args}"
+      ARGS:
+        script: tools/dist_mn_launch.sh
+        num_node: 2
+        gpus: 8
+        py_args: --wandb --keep 1 --batch-size 256 --amp-opt-level O1 --tag fp16
+      SWEEP_ARGS:
+        config:
+          - configs/gvit/gvits_l2c64a8c0_amix_dp_patch16_224_gcc12m.yaml
+          - configs/gvit/gvits_l3b4c64a64c8a8_proj_amix_dp_patch16_224_gcc12m.yaml
+          - configs/gvit/gvits_l3c64a64c8a8_proj_amix_dp_patch16_224_gcc12m.yaml

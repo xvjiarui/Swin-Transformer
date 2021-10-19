@@ -256,7 +256,14 @@ _C.MODEL.GVIT.ASSIGN_HEADS = 0
 _C.MODEL.GVIT.BOTTLENECK_INDICES = [[], [], [], []]
 _C.MODEL.GVIT.CONCAT_CLUSTER_TOKEN = True
 _C.MODEL.GVIT.FROZEN_STAGES = -1
-_C.MODEL.GVIT.ORTHOGONAL_LOSS = False
+_C.MODEL.GVIT.ORTHOGONAL_LOSS_WEIGHT = 0.
+_C.MODEL.GVIT.ATTN_BEFORE_ASSIGN = False
+_C.MODEL.GVIT.ASSIGN_POS_EMBED = ['none', 'none', 'none']
+_C.MODEL.GVIT.PRE_NORM = False
+_C.MODEL.GVIT.ASSIGN_TYPES = [None, None, None]
+_C.MODEL.GVIT.NORM_EPS = 1e-5
+_C.MODEL.GVIT.ASSIGN_EPS = 1.
+_C.MODEL.GVIT.PROJ_TYPE = 'mixer'
 
 # RecurrentCMViT
 _C.MODEL.RCMVIT = CN()
@@ -379,6 +386,8 @@ _C.THROUGHPUT_MODE = False
 _C.WANDB = False
 # local rank for DistributedDataParallel, given by command line argument
 _C.LOCAL_RANK = 0
+_C.UPLOAD_S3 = False
+_C.UPLOAD_GDRIVE = False
 
 
 def _update_config_from_file(config, cfg_file):
@@ -449,6 +458,13 @@ def update_config(config, args):
     world_size = int(os.environ['WORLD_SIZE'])
 
     config.MODEL.NAME = config.MODEL.NAME+f'_bs{config.DATA.BATCH_SIZE}x{world_size}'
+
+    if hasattr(args, 'upload_s3') and args.upload_s3:
+        config.UPLOAD_S3 = args.upload_s3
+        config.UPLOAD_DIR = os.path.join('swin', config.MODEL.NAME, config.TAG)
+    if hasattr(args, 'upload_gdrive') and args.upload_gdrive:
+        config.UPLOAD_GDRIVE = args.upload_gdrive
+        config.UPLOAD_DIR = os.path.join('swin', config.MODEL.NAME, config.TAG)
 
     # output folder
     config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)

@@ -6,6 +6,7 @@
 # --------------------------------------------------------
 
 from collections import defaultdict
+import math
 
 import numpy as np
 import torch
@@ -16,6 +17,8 @@ from timm.models.layers import to_2tuple, trunc_normal_, DropPath
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from collections import OrderedDict
+from .misc import Result
+from functools import partial
 
 
 class Mlp(nn.Module):
@@ -35,6 +38,58 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+
+class MixerMlp(Mlp):
+
+    def forward(self, x):
+        return super().forward(x.transpose(1, 2)).transpose(1, 2)
+
+class MixerLinear(nn.Module):
+    def __init__(self, dim, out_seq_len):
+        super(MixerLinear, self).__init__()
+        self.fc = nn.Linear(dim, out_seq_len)
+
+    def forward(self, x):
+        """
+
+        Args:
+            x: shape [B, L1, C]
+
+        Returns:
+
+        """
+        # [B, L1, L2]
+        inter_weight = self.fc(x)
+        # [N, L2, L1]
+        inter_weight = inter_weight.transpose(1, 2)
+        inter_weight = F.softmax(inter_weight, dim=-1)
+        # [B, L2, C]
+        inter_x = inter_weight @ x
+        return inter_x
+
+class MixerAttn(nn.Module):
+    def __init__(self, dim, out_seq_len):
+        super(MixerAttn, self).__init__()
+        self.attn = Attention(dim=dim, num_heads=dim//64, out_dim=out_seq_len, qkv_bias=True, qkv_fuse=True)
+
+    def forward(self, x):
+        """
+
+        Args:
+            x: shape [B, L1, C]
+
+        Returns:
+
+        """
+        # [B, L1, L2]
+        inter_weight = self.attn(x)
+        # [N, L2, L1]
+        inter_weight = inter_weight.transpose(1, 2)
+        inter_weight = F.softmax(inter_weight, dim=-1)
+        # [B, L2, C]
+        inter_x = inter_weight @ x
+        return inter_x
+
 
 def attention_pool(tensor, pool, hw_shape, has_cls_embed=True, norm=None):
     if pool is None:
@@ -170,7 +225,7 @@ class AssignAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
                  attn_drop=0., proj_drop=0., hard=True, inv_attn=True,
                  gumbel=False, categorical=False, gumbel_tau=1., sigmoid=False,
-                 sum_assign=False):
+                 sum_assign=False, assign_eps=1.):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -192,6 +247,7 @@ class AssignAttention(nn.Module):
         self.gumbel_tau = gumbel_tau
         self.sigmoid = sigmoid
         self.sum_assign = sum_assign
+        self.assign_eps = assign_eps
 
     def get_attn(self, attn):
         if self.sigmoid:
@@ -213,7 +269,7 @@ class AssignAttention(nn.Module):
                 attn = F.softmax(attn, dim=attn_dim)
 
         if self.inv_attn and not self.sum_assign:
-            attn = attn / (attn.sum(dim=-1, keepdim=True) + 1)
+            attn = attn / (attn.sum(dim=-1, keepdim=True) + self.assign_eps)
 
         return attn
 
@@ -260,20 +316,26 @@ class AssignAttention(nn.Module):
                f'categorical={self.categorical}, \n' \
                f'sigmoid={self.sigmoid}, \n' \
                f'sum_assign={self.sum_assign}, \n' \
-               f'gumbel_tau: {self.gumbel_tau}'
+               f'gumbel_tau: {self.gumbel_tau}, \n' \
+               f'assign_eps: {self.assign_eps}'
 
 class TokenAssign(nn.Module):
 
-    def __init__(self, dim, out_dim, num_heads, num_cluster, out_seq_len,
+    def __init__(self, *, dim, out_dim, num_heads, num_cluster, out_seq_len,
                  with_cls_token, norm_layer,
                  mlp_ratio=(0.5, 4.0), hard=True, inv_attn=True, gumbel=False,
                  categorical=False,
                  sigmoid=False,
                  sum_assign=False,
+                 assign_eps=1.,
                  inter_mode='attn',
                  assign_skip=True, gumbel_tau=1.,
-                 inter_hard=False, inter_gumbel=False):
+                 inter_hard=False, inter_gumbel=False,
+                 attn_before_assign=False,
+                 pos_embed_type='none',
+                 hw_shape=None):
         super(TokenAssign, self).__init__()
+        self.dim = dim
         self.hard = hard
         self.inv_attn = inv_attn
         self.gumbel = gumbel
@@ -287,6 +349,9 @@ class TokenAssign(nn.Module):
         self.with_cls_token = with_cls_token
         self.out_seq_len = out_seq_len
         self.assign_skip = assign_skip
+        assert pos_embed_type in ['none', 'simple', 'fourier']
+        self.pos_embed_type = pos_embed_type
+        self.hw_shape = hw_shape
         # norm on cluster_tokens
         self.norm_tokens = norm_layer(dim)
         tokens_dim, channels_dim = [int(x * dim) for x in to_2tuple(mlp_ratio)]
@@ -303,13 +368,20 @@ class TokenAssign(nn.Module):
             raise ValueError
         # norm on x
         self.norm_x = norm_layer(dim)
-        self.assign = AssignAttention(dim=dim, num_heads=num_heads,
+        if attn_before_assign:
+            self.pre_assign_attn = CrossAttnBlock(dim=dim, num_heads=num_heads,
+                                                  mlp_ratio=4, qkv_bias=True, norm_layer=norm_layer, post_norm=True)
+        else:
+            self.pre_assign_attn = None
+        self.assign = AssignAttention(dim=dim,
+                                      num_heads=num_heads if not attn_before_assign else 1,
                                       qkv_bias=True, hard=hard,
                                       inv_attn=inv_attn, gumbel=gumbel,
                                       categorical=categorical,
                                       gumbel_tau=gumbel_tau,
                                       sigmoid=sigmoid,
-                                      sum_assign=sum_assign)
+                                      sum_assign=sum_assign,
+                                      assign_eps=assign_eps)
         self.norm_new_x = norm_layer(dim)
         self.mlp_channels = Mlp(dim, channels_dim, out_dim)
         if out_dim is not None and dim != out_dim:
@@ -318,6 +390,58 @@ class TokenAssign(nn.Module):
                 nn.Linear(dim, out_dim, bias=False))
         else:
             self.reduction = nn.Identity()
+
+        if pos_embed_type == 'simple':
+            self.pos_embed = self.build_simple_position_embedding()
+        elif pos_embed_type == 'fourier':
+            self.pos_embed = self.build_2d_sincos_position_embedding()
+        else:
+            self.pos_embed = None
+
+    def get_pos_embed(self, B, H, W):
+        if self.training:
+            return self.pos_embed
+        # vis setting
+        if self.with_cls_token:
+            pos_embed = self.pos_embed[:, 1:]
+        else:
+            pos_embed = self.pos_embed
+        pos_embed = interpolate_pos_encoding(pos_embed, H, W)
+        if self.with_cls_token:
+            pos_embed = torch.cat((self.pos_embed[:, :1], pos_embed), dim=1)
+        return pos_embed
+
+    def build_simple_position_embedding(self):
+        num_tokens = self.hw_shape[0] * self.hw_shape[1]
+        if self.with_cls_token:
+            pos_embed = nn.Parameter(
+                torch.zeros(1, num_tokens + 1, self.dim))
+        else:
+            pos_embed = nn.Parameter(
+                torch.zeros(1, num_tokens, self.dim))
+        trunc_normal_(pos_embed, std=.02)
+        return pos_embed
+
+    def build_2d_sincos_position_embedding(self, temperature=10000.):
+        h, w = self.hw_shape
+        grid_w = torch.arange(w, dtype=torch.float32)
+        grid_h = torch.arange(h, dtype=torch.float32)
+        grid_w, grid_h = torch.meshgrid(grid_w, grid_h)
+        assert self.dim % 4 == 0, 'Embed dimension must be divisible by 4 for 2D sin-cos position embedding'
+        pos_dim = self.dim // 4
+        omega = torch.arange(pos_dim, dtype=torch.float32) / pos_dim
+        omega = 1. / (temperature**omega)
+        out_w = torch.einsum('m,d->md', [grid_w.flatten(), omega])
+        out_h = torch.einsum('m,d->md', [grid_h.flatten(), omega])
+        pos_emb = torch.cat([torch.sin(out_w), torch.cos(out_w), torch.sin(out_h), torch.cos(out_h)], dim=1)[None, :, :]
+
+        if self.with_cls_token:
+            pe_token = torch.zeros([1, 1, self.dim], dtype=torch.float32)
+            pos_embed = nn.Parameter(torch.cat([pe_token, pos_emb], dim=1))
+        else:
+            pos_embed = nn.Parameter(pos_emb)
+        pos_embed.requires_grad = False
+        return pos_embed
 
     def extra_repr(self) -> str:
         return f'inter_mode={self.inter_mode}, \n' \
@@ -328,7 +452,9 @@ class TokenAssign(nn.Module):
                f'sigmoid={self.sigmoid}, \n' \
                f'sum_assign={self.sum_assign}, \n' \
                f'out_seq_len={self.out_seq_len}, \n ' \
-               f'assign_skip={self.assign_skip}'
+               f'assign_skip={self.assign_skip}, \n' \
+               f'hw_shape={self.hw_shape}, \n' \
+               f'pos_embed_type={self.pos_embed_type}'
 
     def interpolate_token(self, x, cluster_tokens):
         """
@@ -379,10 +505,14 @@ class TokenAssign(nn.Module):
         Returns:
             new_x (torch.Tensor): [B, S_2, C], S_2 is the new number of cluster tokens
         """
+        if self.pos_embed is not None:
+            x = x + self.get_pos_embed(x.shape[0], *self.hw_shape)
         cluster_tokens = self.norm_tokens(cluster_tokens)
         x = self.norm_x(x)
         # [B, S_2, C]
         inter_cluster_tokens = self.interpolate_token(x, cluster_tokens)
+        if self.pre_assign_attn is not None:
+            inter_cluster_tokens = self.pre_assign_attn(inter_cluster_tokens, x)
         if self.with_cls_token:
             new_x = self.assign(inter_cluster_tokens, x[:, 1:])
         else:
@@ -580,10 +710,16 @@ class CrossAttnBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False,
                  qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, post_norm=False):
         super().__init__()
-        self.norm_q = norm_layer(dim)
-        self.norm_k = norm_layer(dim)
+        if post_norm:
+            self.norm_post = norm_layer(dim)
+            self.norm_q = nn.Identity()
+            self.norm_k = nn.Identity()
+        else:
+            self.norm_q = norm_layer(dim)
+            self.norm_k = norm_layer(dim)
+            self.norm_post = nn.Identity()
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
             attn_drop=attn_drop, proj_drop=drop)
@@ -598,6 +734,7 @@ class CrossAttnBlock(nn.Module):
         x = x + self.drop_path(
             self.attn(self.norm_q(query), self.norm_k(key), mask=mask))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = self.norm_post(x)
         return x
 
 class AttnBlock(nn.Module):
@@ -712,7 +849,7 @@ class BasicLayer(nn.Module):
                     qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop,
                     attn_drop=attn_drop, drop_path=drop_path[i],
                     norm_layer=norm_layer
-                    ))
+                ))
             else:
                 blocks.append(
                     AttnBlock(
@@ -727,13 +864,6 @@ class BasicLayer(nn.Module):
         self.use_checkpoint = use_checkpoint
 
         self.cluster_weight_proj = cluster_weight_proj
-        if isinstance(cluster_weight_proj, nn.Linear):
-            if cluster_weight_proj.in_features != dim:
-                self.cluster_proj = nn.Sequential(
-                    norm_layer(cluster_weight_proj.in_features),
-                    nn.Linear(cluster_weight_proj.in_features, dim))
-            else:
-                self.cluster_proj = nn.Identity()
 
     @property
     def with_cluster_token(self):
@@ -767,9 +897,7 @@ class BasicLayer(nn.Module):
         if self.with_cluster_token:
             cluster_token = self.cluster_token.expand(x.size(0), -1, -1)
             if self.cluster_weight_proj is not None:
-                # [B, S_2, S_1]
-                inter_weight = self.cluster_weight_proj(prev_cluster_token).transpose(1, 2).softmax(dim=-1)
-                cluster_token = cluster_token + inter_weight @ self.cluster_proj(prev_cluster_token)
+                cluster_token = cluster_token + self.cluster_weight_proj(prev_cluster_token)
 
             if self.cluster_attn_avg:
                 cluster_token = self.attn_avg(cluster_token, key=x)
@@ -815,6 +943,9 @@ class BasicLayer(nn.Module):
 
 
         if self.downsample is not None:
+            # vis setting
+            if not self.training:
+                self.downsample.hw_shape = self.hw_shape
             if isinstance(self.downsample, TokenAssign):
                 x, hw_shape = self.downsample(x, cluster_token)
             else:
@@ -1032,13 +1163,21 @@ class GroupViT(nn.Module):
                  concat_cluster_token=True,
                  bottleneck_indices=[[], [], [], []],
                  frozen_stages=-1,
-                 orthogonal_loss=False):
+                 orthogonal_loss_weight=0.,
+                 attn_before_assign=False,
+                 assign_pos_embed=['none', 'none', 'none'],
+                 pre_norm=False,
+                 assign_types=[None, None, None],
+                 norm_eps=1e-5,
+                 assign_eps=1.,
+                 proj_type='mixer'):
         super().__init__()
-        assert patch_size in [4, 16]
+        assert patch_size in [4, 8, 16]
         self.num_classes = num_classes
         assert len(embed_factors) == len(depths) == len(num_clusters)
         assert all(_ == 0 for _ in num_heads) or len(depths) == len(num_heads)
         assert len(depths)-1 == len(downsample_types) == len(num_assign)
+        assert all(_ == 'none' for _ in assign_pos_embed) or len(assign_pos_embed) == len(downsample_types)
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.dim_per_head = dim_per_head
@@ -1065,7 +1204,11 @@ class GroupViT(nn.Module):
         self.pred_src = pred_src
         assert all(len(_)==0 for _ in bottleneck_indices) or len(depths) == len(bottleneck_indices)
         self.frozen_stages = frozen_stages
-        self.orthogonal_loss = orthogonal_loss
+        self.orthogonal_loss_weight = orthogonal_loss_weight
+        assert proj_type in ['attn', 'linear', 'copy', 'mixer']
+
+        norm_layer = partial(norm_layer, eps=norm_eps)
+
 
         if patch_embed_type == 'simple':
             if patch_size == 16:
@@ -1089,26 +1232,24 @@ class GroupViT(nn.Module):
         num_patches = self.patch_embed.num_patches
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
-        if freeze_patch_embed:
-            for param in self.patch_embed.parameters():
-                param.requires_grad = False
 
         if self.with_gap:
             self.avgpool = nn.AdaptiveAvgPool1d(1)
-            if pos_embed_type == 'simple':
-                self.pos_embed = nn.Parameter(
-                    torch.zeros(1, num_patches, embed_dim))
-                trunc_normal_(self.pos_embed, std=.02)
-            elif pos_embed_type == 'fourier':
-                self.pos_embed = PositionalEncodingFourier(dim=embed_dim)
-            else:
-                raise ValueError
         else:
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-            assert pos_embed_type == 'simple'
-            self.pos_embed = nn.Parameter(
-                torch.zeros(1, num_patches + 1, embed_dim))
-            trunc_normal_(self.pos_embed, std=.02)
+
+        if pos_embed_type == 'simple':
+            self.pos_embed = self.build_simple_position_embedding()
+        elif pos_embed_type == 'fourier':
+            self.pos_embed = self.build_2d_sincos_position_embedding()
+        else:
+            raise ValueError
+        self.pre_norm = norm_layer(embed_dim) if pre_norm else nn.Identity()
+
+        if freeze_patch_embed:
+            for param in self.patch_embed.parameters():
+                param.requires_grad = False
+            self.pos_embed.requires_grad = False
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -1122,6 +1263,11 @@ class GroupViT(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
+            if i_layer < len(assign_types) and assign_types[i_layer] is not None:
+                cur_assign_type = assign_types[i_layer]
+            else:
+                cur_assign_type = assign_type
+
             dim = int(embed_dim * embed_factors[i_layer])
             downsample = None
             if i_layer < self.num_layers -1 :
@@ -1143,18 +1289,22 @@ class GroupViT(nn.Module):
                                              num_cluster=num_clusters[i_layer],
                                              out_seq_len=num_assign[i_layer],
                                              norm_layer=norm_layer,
-                                             hard='hard' in assign_type,
-                                             inv_attn='inv' in assign_type,
-                                             gumbel='gumbel' in assign_type,
-                                             categorical='categorical' in assign_type,
-                                             sigmoid='sigmoid' in assign_type,
-                                             sum_assign='sum_assign' in assign_type,
+                                             hard='hard' in cur_assign_type,
+                                             inv_attn='inv' in cur_assign_type,
+                                             gumbel='gumbel' in cur_assign_type,
+                                             categorical='categorical' in cur_assign_type,
+                                             sigmoid='sigmoid' in cur_assign_type,
+                                             sum_assign='sum_assign' in cur_assign_type,
+                                             assign_eps=assign_eps,
                                              inter_mode=inter_mode,
                                              assign_skip=assign_skip,
                                              with_cls_token=self.with_cls_token,
                                              gumbel_tau=gumbel_tau,
                                              inter_hard='hard' in inter_type,
-                                             inter_gumbel='gumbel' in inter_type)
+                                             inter_gumbel='gumbel' in inter_type,
+                                             attn_before_assign=attn_before_assign,
+                                             pos_embed_type=assign_pos_embed[i_layer],
+                                             hw_shape=next_hw_shape)
                     next_hw_shape = [-1, -1]
                     next_input_seq_len = num_assign[i_layer]
                 elif downsample_types[i_layer] == 'learner':
@@ -1177,8 +1327,34 @@ class GroupViT(nn.Module):
                 else:
                     raise ValueError
 
-            if i_layer > 0 and with_cluster_proj:
-                cluster_weight_proj = nn.Linear(int(embed_dim * embed_factors[i_layer-1]), num_clusters[i_layer])
+            if i_layer > 0 and num_clusters[i_layer] > 0 and with_cluster_proj:
+                prev_dim = int(embed_dim * embed_factors[i_layer-1])
+                if proj_type == 'mixer':
+                    cluster_weight_proj = nn.Sequential(
+                        norm_layer(prev_dim),
+                        MixerMlp(num_clusters[i_layer - 1],
+                                 prev_dim // 2,
+                                 num_clusters[i_layer]))
+                elif proj_type == 'linear':
+                    cluster_weight_proj = nn.Sequential(
+                        norm_layer(prev_dim),
+                        MixerLinear(prev_dim,
+                                    num_clusters[i_layer]))
+                elif proj_type == 'attn':
+                    cluster_weight_proj = nn.Sequential(
+                        norm_layer(prev_dim),
+                        MixerAttn(prev_dim,
+                                  num_clusters[i_layer]))
+                elif proj_type == 'copy':
+                    assert num_clusters[i_layer -1] == num_clusters[i_layer]
+                    cluster_weight_proj = nn.Identity()
+                else:
+                    raise ValueError(f'Unsupported proj_type: {proj_type}')
+
+                if dim != prev_dim:
+                    cluster_weight_proj = nn.Sequential(cluster_weight_proj,
+                                                        norm_layer(prev_dim),
+                                                        nn.Linear(prev_dim, dim, bias=False))
             else:
                 cluster_weight_proj = None
             layer = BasicLayer(dim=dim,
@@ -1196,7 +1372,7 @@ class GroupViT(nn.Module):
                                use_checkpoint=use_checkpoint,
                                with_cls_token=self.with_cls_token,
                                cluster_weight_proj=cluster_weight_proj,
-                               zero_init_cluster_token=zero_init_cluster_token,
+                               zero_init_cluster_token=zero_init_cluster_token and cluster_weight_proj is not None,
                                cluster_attn_avg=with_cluster_attn_avg,
                                attn_mask_style=attn_mask_style,
                                concat_cluster_token=concat_cluster_token,
@@ -1223,13 +1399,6 @@ class GroupViT(nn.Module):
     def _freeze_stages(self):
         """Freeze stages param and norm stats."""
         if self.frozen_stages >= 0:
-            for param in self.patch_embed.parameters():
-                param.requires_grad = False
-            if self.pos_embed_type == 'simple':
-                self.pos_embed.requires_grad = False
-            else:
-                for param in self.pos_embed.parameters():
-                    param.requires_grad = False
             for i, m in enumerate(self.layers):
                 if i <= self.frozen_stages:
                     for name, param in m.named_parameters():
@@ -1258,10 +1427,45 @@ class GroupViT(nn.Module):
                 load_pos_embed= rearrange(load_pos_embed, 'b c h w -> b (h w) c', h=H_new, w=W_new)
                 if self.with_cls_token:
                     load_pos_embed = torch.cat((state_dict['pos_embed'][:, :1], load_pos_embed),
-                                          dim=1)
+                                               dim=1)
 
                 state_dict['pos_embed'] = load_pos_embed
         return super().load_state_dict(state_dict, strict)
+
+    def build_simple_position_embedding(self):
+        if self.with_gap:
+            pos_embed = nn.Parameter(
+                torch.zeros(1, self.patch_embed.num_patches, self.embed_dim))
+        else:
+            pos_embed = nn.Parameter(
+                torch.zeros(1, self.patch_embed.num_patches + 1, self.embed_dim))
+        trunc_normal_(pos_embed, std=.02)
+        return pos_embed
+
+    def build_2d_sincos_position_embedding(self, temperature=10000.):
+        h, w = self.patch_embed.patches_resolution
+        grid_w = torch.arange(w, dtype=torch.float32)
+        grid_h = torch.arange(h, dtype=torch.float32)
+        grid_w, grid_h = torch.meshgrid(grid_w, grid_h)
+        assert self.embed_dim % 4 == 0, 'Embed dimension must be divisible by 4 for 2D sin-cos position embedding'
+        pos_dim = self.embed_dim // 4
+        omega = torch.arange(pos_dim, dtype=torch.float32) / pos_dim
+        omega = 1. / (temperature**omega)
+        out_w = torch.einsum('m,d->md', [grid_w.flatten(), omega])
+        out_h = torch.einsum('m,d->md', [grid_h.flatten(), omega])
+        pos_emb = torch.cat([torch.sin(out_w), torch.cos(out_w), torch.sin(out_h), torch.cos(out_h)], dim=1)[None, :, :]
+
+        if self.with_cls_token:
+            pe_token = torch.zeros([1, 1, self.embed_dim], dtype=torch.float32)
+            pos_embed = nn.Parameter(torch.cat([pe_token, pos_emb], dim=1))
+        else:
+            pos_embed = nn.Parameter(pos_emb)
+        pos_embed.requires_grad = False
+        return pos_embed
+
+    @property
+    def width(self):
+        return self.num_features
 
     @property
     def with_cls_token(self):
@@ -1274,6 +1478,10 @@ class GroupViT(nn.Module):
     @property
     def with_cluster_pred(self):
         return 'cluster' in self.pred_src
+
+    @property
+    def with_orthogonal_loss(self):
+        return self.orthogonal_loss_weight > 0.
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -1296,10 +1504,17 @@ class GroupViT(nn.Module):
         return keywords
 
     def get_pos_embed(self, B, H, W):
-        if self.pos_embed_type == 'simple':
+        if self.training:
             return self.pos_embed
+        # vis setting
+        if self.with_cls_token:
+            pos_embed = self.pos_embed[:, 1:]
         else:
-            return self.pos_embed(B, H, W)
+            pos_embed = self.pos_embed
+        pos_embed = interpolate_pos_encoding(pos_embed, H, W)
+        if self.with_cls_token:
+            pos_embed = torch.cat((self.pos_embed[:, :1], pos_embed), dim=1)
+        return pos_embed
 
     def forward_features(self, x):
         aux_dict = defaultdict(list)
@@ -1312,21 +1527,34 @@ class GroupViT(nn.Module):
             x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.get_pos_embed(B, *hw_shape)
         x = self.pos_drop(x)
+        x = self.pre_norm(x)
 
         cluster_token = None
         for layer in self.layers:
-            if self.orthogonal_loss:
+            # vis setting
+            if not self.training:
+                layer.hw_shape = hw_shape
+            if self.with_orthogonal_loss:
                 x, cluster_token, _aux_dict = layer(x, cluster_token, return_all_cluster=True)
                 for k in _aux_dict:
                     aux_dict[k].extend(_aux_dict[k])
             else:
                 x, cluster_token = layer(x, cluster_token)
 
+        x = self.norm(x)
+
         return x, cluster_token, aux_dict
 
     def forward_image_head(self, x):
+        """
+
+        Args:
+            x: shape [B, L, C]
+
+        Returns:
+
+        """
         # [B, L, C]
-        x = self.norm(x)
         if self.with_gap:
             x = self.avgpool(x.transpose(1, 2))  # B C 1
             x = torch.flatten(x, 1)
@@ -1344,14 +1572,21 @@ class GroupViT(nn.Module):
 
         return cluster_token
 
-    def forward(self, x):
+    def forward(self, x, *, return_feat=False, as_dict=False):
         x, cluster_token, aux_dict = self.forward_features(x)
-        outs = []
+        x_feat = x if return_feat else None
+
+        outs = Result(as_dict=as_dict)
+
         if self.with_image_pred:
-            outs.append(self.forward_image_head(x))
+            outs.append(self.forward_image_head(x), name='x')
         if self.with_cluster_pred:
-            outs.append(self.forward_cluster_head(cluster_token))
-        if self.training and self.orthogonal_loss:
+            outs.append(self.forward_cluster_head(cluster_token), name='cluster')
+
+        if return_feat:
+            outs.append(x_feat, name='feat')
+
+        if self.training and self.with_orthogonal_loss:
             orthogonal_loss = 0
             for ct in aux_dict['all_cluster_tokens']:
                 ct = F.normalize(ct, dim=-1)
@@ -1360,7 +1595,26 @@ class GroupViT(nn.Module):
                         ct.shape[1], device=ct.device,
                         dtype=ct.dtype).unsqueeze(0))
                 orthogonal_loss += loss
-            outs.append(orthogonal_loss)
+            outs.append(orthogonal_loss * self.orthogonal_loss_weight, name='aux_loss')
+
+        outs = outs.as_output()
+        if as_dict:
+            return outs
         if len(outs) == 1:
             return outs[0]
         return outs
+
+def interpolate_pos_encoding(pos_embed, H, W):
+    npatch = H *W
+
+    N = pos_embed.shape[1]
+    if npatch == N and W == H:
+        return pos_embed
+    patch_pos_embed = pos_embed
+    dim = pos_embed.shape[-1]
+    patch_pos_embed = F.interpolate(
+        patch_pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)),
+                                dim).permute(0, 3, 1, 2),
+        size=(H, W), mode='bicubic', align_corners=False)
+    patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+    return patch_pos_embed
