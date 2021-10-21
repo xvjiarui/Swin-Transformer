@@ -16,7 +16,8 @@ JOB_CFGS:
       - "mkdir -p /work_dirs/swin && ln -s /work_dirs/swin output"
       - "pip install wandb==0.12.1"
     POST_LAUNCH:
-      - "aws s3 sync /result s3://xvjiarui/vl/ngc_logs/\\${NGC_JOB_ID}_\\${NGC_ARRAY_INDEX} --quiet"
+      - "aws s3 sync /result s3://xvjiarui/swin/ngc_logs/\\${NGC_JOB_ID} --quiet"
+      - "rclone sync /result ucsd:exps/swin/ngc_logs/\\${NGC_JOB_ID} --quiet"
     LAUNCH:
       TEMPLATES:
         - "{script} {config} {num_node} {gpus} --data-path /job_data_imagenet --web --upload_s3 {py_args}"
@@ -27,6 +28,5 @@ JOB_CFGS:
         py_args: --wandb --keep 1 --batch-size 256 --amp-opt-level O1 --tag fp16
       SWEEP_ARGS:
         config:
-          - configs/gvit/gvits_l2c64a8c0_amix_dp_patch16_224_gcc12m.yaml
-          - configs/gvit/gvits_l3b4c64a64c8a8_proj_amix_dp_patch16_224_gcc12m.yaml
-          - configs/gvit/gvits_l3c64a64c8a8_proj_amix_dp_patch16_224_gcc12m.yaml
+          - configs/gvit/gvits_l3b4c64a64c8a8_proj_amix_patch16_224_gcc12m.yaml
+          - configs/gvit/gvits_l3b4c64a64c8a8_proj_amix_pn_dp_patch16_224_gcc12m.yaml

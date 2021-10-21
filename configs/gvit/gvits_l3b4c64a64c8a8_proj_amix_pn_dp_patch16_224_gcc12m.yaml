@@ -1,0 +1,22 @@
+# l{x}c{y}: len(DEPTHS)={x}, NUM_CLUSTERS={y}
+
+MODEL:
+  TYPE: gvit
+  DROP_PATH_RATE: 0.1
+  GVIT:
+    EMBED_DIM: 384
+    DIM_PER_HEAD: 64
+    PATCH_SIZE: 16
+    DEPTHS: [4, 4, 4]
+    NUM_CLUSTERS: [64, 8, 0]
+    EMBED_FACTORS: [1, 1, 1]
+    DOWNSAMPLE_TYPES: ['assign', 'assign']
+    NUM_ASSIGN: [64, 8]
+    WITH_GAP: true
+    ATTN_MASK_STYLE: []
+    INTER_MODE: mixer
+    ATTN_BEFORE_ASSIGN: true
+    ASSIGN_TYPE: ['gumbel', 'hard', 'inv']
+    WITH_CLUSTER_PROJ: true
+    ZERO_INIT_CLUSTER_TOKEN: true
+    PRE_NORM: true
